@@ -62,6 +62,11 @@
       }
     });
     document.addEventListener("click", onQuoteMarkClick, true);
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message && message.type === "CGQA_TOGGLE_PANEL") {
+        togglePanel();
+      }
+    });
 
     state.observer = new MutationObserver(() => {
       if (state.restoring) {
@@ -85,6 +90,9 @@
       const result = CGQADom.validateSelection(selection);
       if (!result.ok) {
         CGQASidebar.hideSelectionMenu();
+        if (selection && !selection.isCollapsed && result.reason) {
+          CGQASidebar.showToast(result.reason);
+        }
         return;
       }
 
@@ -135,7 +143,10 @@
 
     state.threads.push(thread);
     await CGQAStorage.saveThread(thread);
-    CGQADom.renderThreadMark(thread);
+    const rendered = CGQADom.renderThreadMark(thread);
+    if (!rendered) {
+      CGQASidebar.showToast("已创建批注，但当前 DOM 无法安全渲染正文标记。");
+    }
     openThread(threadId);
     window.getSelection().removeAllRanges();
   }
@@ -181,6 +192,21 @@
     state.activeThreadId = "";
     CGQADom.setActiveMark("");
     sidebar.render(null);
+  }
+
+  function togglePanel() {
+    if (state.activeThreadId) {
+      closeSidebar();
+      return;
+    }
+
+    const latest = state.threads[state.threads.length - 1];
+    if (latest) {
+      openThread(latest.threadId);
+      return;
+    }
+
+    sidebar.renderHelp();
   }
 
   function getThread(threadId) {

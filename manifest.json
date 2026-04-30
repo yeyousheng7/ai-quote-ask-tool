@@ -3,7 +3,13 @@
   "name": "ChatGPT Quote Annotation",
   "version": "0.1.0",
   "description": "Add lightweight quote annotation threads to ChatGPT conversations.",
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab", "scripting"],
+  "action": {
+    "default_title": "ChatGPT Quote Annotation"
+  },
+  "background": {
+    "service_worker": "src/background.js"
+  },
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],

@@ -11,6 +11,11 @@
     "[aria-label='你的消息操作']"
   ].join(",");
   const COMPLEX_SELECTOR = ".katex, math, pre, code, .cm-editor, .cm-content";
+  const TURN_SELECTOR = [
+    "section[data-turn]",
+    "[data-testid^='conversation-turn-'][data-turn]",
+    "[data-message-author-role]"
+  ].join(",");
 
   function getConversationId() {
     const match = location.pathname.match(/\/c\/([^/?#]+)/);
@@ -22,16 +27,40 @@
       return null;
     }
     const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
-    return element ? element.closest("section[data-testid^='conversation-turn-'][data-turn]") : null;
+    if (!element) {
+      return null;
+    }
+
+    const message = element.closest("[data-message-author-role]");
+    if (message) {
+      return message.closest("section[data-turn], [data-testid^='conversation-turn-']") || message;
+    }
+
+    return element.closest(TURN_SELECTOR);
   }
 
   function getAssistantTurn(node) {
     const turn = getTurn(node);
-    return turn && turn.getAttribute("data-turn") === "assistant" ? turn : null;
+    if (!turn) {
+      return null;
+    }
+    if (turn.getAttribute("data-turn") === "assistant") {
+      return turn;
+    }
+    const message = turn.matches("[data-message-author-role]")
+      ? turn
+      : turn.querySelector("[data-message-author-role]");
+    return message && message.getAttribute("data-message-author-role") === "assistant" ? turn : null;
   }
 
   function getMessageNode(turn) {
-    return turn ? turn.querySelector("[data-message-author-role='assistant'][data-message-id]") : null;
+    if (!turn) {
+      return null;
+    }
+    if (turn.matches("[data-message-author-role='assistant']")) {
+      return turn;
+    }
+    return turn.querySelector("[data-message-author-role='assistant']");
   }
 
   function getMarkdownNode(turn) {
@@ -39,7 +68,7 @@
     if (!message) {
       return null;
     }
-    return message.querySelector(".markdown.prose, .markdown-new-styling, .markdown");
+    return message.querySelector(".markdown.prose, .markdown-new-styling, .markdown") || message;
   }
 
   function getMessageId(turn) {
@@ -49,6 +78,16 @@
 
   function getTurnId(turn) {
     return turn ? turn.getAttribute("data-turn-id") || turn.getAttribute("data-testid") || "" : "";
+  }
+
+  function isInMarkdown(markdown, node) {
+    if (!markdown || !node) {
+      return false;
+    }
+    if (node.nodeType === Node.TEXT_NODE) {
+      return markdown.contains(node);
+    }
+    return markdown === node || markdown.contains(node);
   }
 
   function isInsideComplexContent(node) {
@@ -149,7 +188,7 @@
     }
 
     const markdown = getMarkdownNode(startTurn);
-    if (!markdown || !markdown.contains(range.commonAncestorContainer)) {
+    if (!markdown || !isInMarkdown(markdown, range.startContainer) || !isInMarkdown(markdown, range.endContainer)) {
       return { ok: false, reason: "请只选择 ChatGPT 回复正文，不要选择思考提示或操作按钮。" };
     }
 
@@ -334,13 +373,13 @@
     if (messageId) {
       const message = document.querySelector(`[data-message-author-role='assistant'][data-message-id='${messageId}']`);
       if (message) {
-        return message.closest("section[data-testid^='conversation-turn-'][data-turn='assistant']");
+        return getAssistantTurn(message);
       }
     }
 
     const turnId = anchor.sourceTurnId || thread.sourceTurnId || "";
     if (turnId) {
-      const turn = Array.from(document.querySelectorAll("section[data-turn='assistant']")).find((item) => {
+      const turn = Array.from(document.querySelectorAll("section[data-turn='assistant'], [data-message-author-role='assistant']")).find((item) => {
         return item.getAttribute("data-turn-id") === turnId || item.getAttribute("data-testid") === turnId;
       });
       if (turn) {
@@ -377,11 +416,15 @@
   }
 
   function getAllTurns() {
-    return Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn]"));
+    return Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"));
   }
 
   function getAssistantTurns() {
-    return Array.from(document.querySelectorAll("section[data-turn='assistant']"));
+    const turns = Array.from(document.querySelectorAll("section[data-turn='assistant']"));
+    if (turns.length > 0) {
+      return turns;
+    }
+    return Array.from(document.querySelectorAll("[data-message-author-role='assistant']"));
   }
 
   function getAssistantMessageRecords() {

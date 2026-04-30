@@ -80,11 +80,23 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
+    function renderHelp() {
+      root.hidden = false;
+      title.textContent = "批注引用";
+      subtitle.textContent = "先选择一段 ChatGPT 回复";
+      quote.textContent = "在 ChatGPT 的回复正文里划选文字，然后点击浮动的“批注”按钮。创建后，同一引用的追问会保存在这里。";
+      input.value = "";
+      input.disabled = true;
+      messages.innerHTML = "";
+      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注引用。"));
+    }
+
     function focusInput() {
+      input.disabled = false;
       input.focus();
     }
 
-    return { render, focusInput, root };
+    return { render, renderHelp, focusInput, root };
   }
 
   function renderMessage(message) {
