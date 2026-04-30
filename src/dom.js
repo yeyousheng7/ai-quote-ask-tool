@@ -451,6 +451,17 @@
       || document.querySelector("textarea[name='prompt-textarea']");
   }
 
+  function getPromptText() {
+    const editor = getPromptEditor();
+    if (!editor) {
+      return "";
+    }
+    if (editor.tagName === "TEXTAREA") {
+      return editor.value || "";
+    }
+    return editor.innerText || editor.textContent || "";
+  }
+
   function setPromptText(text) {
     const editor = getPromptEditor();
     if (!editor) {
@@ -479,17 +490,20 @@
     return true;
   }
 
-  function findSendButton() {
+  function findSendButton(options = {}) {
     const editor = getPromptEditor();
-    const composer = editor ? editor.closest("form, [class*='composer'], main") : document;
+    const composer = editor ? findComposerScope(editor) : document;
     const scope = composer || document;
+    const hasPromptText = Boolean(options.hasPromptText) || getPromptText().trim().length > 0;
     const preferred = scope.querySelector([
       "[data-testid='send-button']:not([disabled])",
+      "[data-testid='composer-submit-button']:not([disabled])",
       "button[type='submit']:not([disabled])",
       "button[aria-label*='发送']:not([disabled])",
-      "button[aria-label*='Send']:not([disabled])"
+      "button[aria-label*='Send']:not([disabled])",
+      "button[class*='composer-submit-button-color']:not([disabled])"
     ].join(","));
-    if (preferred) {
+    if (preferred && (hasPromptText || isExplicitSendButton(preferred))) {
       return preferred;
     }
 
@@ -497,7 +511,13 @@
     const editorRect = editor ? editor.getBoundingClientRect() : null;
     const candidates = buttons.filter((button) => {
       const label = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.toLowerCase();
-      if (/添加|文件|attach|voice|语音|听写|model|模型|工具|tool|分享|share|export/.test(label)) {
+      if (button.className && String(button.className).includes("composer-submit-button-color") && hasPromptText) {
+        return true;
+      }
+      if (/添加|文件|attach|听写|model|模型|工具|tool|分享|share|export/.test(label)) {
+        return false;
+      }
+      if (/voice|语音/.test(label) && !hasPromptText) {
         return false;
       }
       if (!editorRect) {
@@ -518,10 +538,24 @@
     })[0] || null;
   }
 
-  async function waitForSendButton() {
+  function findComposerScope(editor) {
+    return editor.closest("form[data-type='unified-composer']")
+      || editor.closest("form")
+      || editor.closest("[data-composer-surface]")?.parentElement
+      || editor.closest("[class*='composer']")
+      || document;
+  }
+
+  function isExplicitSendButton(button) {
+    const label = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.toLowerCase();
+    return /send|发送|submit|提交/.test(label)
+      || button.matches("[data-testid='send-button'], [data-testid='composer-submit-button'], button[type='submit']");
+  }
+
+  async function waitForSendButton(options = {}) {
     const startedAt = Date.now();
     while (Date.now() - startedAt < 2500) {
-      const button = findSendButton();
+      const button = findSendButton(options);
       if (button && !button.disabled && button.getAttribute("aria-disabled") !== "true") {
         return button;
       }
@@ -535,7 +569,7 @@
       throw new Error("找不到 ChatGPT 主输入框。");
     }
 
-    const button = await waitForSendButton();
+    const button = await waitForSendButton({ hasPromptText: Boolean(text && text.trim()) });
     if (!button) {
       throw new Error("找不到 ChatGPT 发送按钮。");
     }
