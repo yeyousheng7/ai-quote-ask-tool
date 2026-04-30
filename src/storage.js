@@ -1,0 +1,105 @@
+(function () {
+  "use strict";
+
+  const STORAGE_PREFIX = "cgqa:v1:";
+
+  function hasChromeStorage() {
+    return Boolean(globalThis.chrome && chrome.storage && chrome.storage.local);
+  }
+
+  function getStorageKey(conversationId) {
+    return `${STORAGE_PREFIX}${conversationId || "unknown"}`;
+  }
+
+  function readChrome(key) {
+    return new Promise((resolve) => {
+      chrome.storage.local.get([key], (result) => resolve(result[key] || null));
+    });
+  }
+
+  function writeChrome(key, value) {
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ [key]: value }, resolve);
+    });
+  }
+
+  function removeChrome(key) {
+    return new Promise((resolve) => {
+      chrome.storage.local.remove([key], resolve);
+    });
+  }
+
+  async function readConversation(conversationId) {
+    const key = getStorageKey(conversationId);
+    if (hasChromeStorage()) {
+      return (await readChrome(key)) || { threads: [] };
+    }
+
+    try {
+      return JSON.parse(localStorage.getItem(key)) || { threads: [] };
+    } catch (_error) {
+      return { threads: [] };
+    }
+  }
+
+  async function writeConversation(conversationId, data) {
+    const key = getStorageKey(conversationId);
+    const value = {
+      threads: Array.isArray(data && data.threads) ? data.threads : [],
+      updatedAt: Date.now()
+    };
+
+    if (hasChromeStorage()) {
+      await writeChrome(key, value);
+      return value;
+    }
+
+    localStorage.setItem(key, JSON.stringify(value));
+    return value;
+  }
+
+  async function listThreads(conversationId) {
+    const data = await readConversation(conversationId);
+    return data.threads || [];
+  }
+
+  async function saveThread(thread) {
+    const data = await readConversation(thread.sourceConversationId);
+    const threads = data.threads || [];
+    const index = threads.findIndex((item) => item.threadId === thread.threadId);
+    const nextThread = { ...thread, updatedAt: Date.now() };
+
+    if (index >= 0) {
+      threads[index] = nextThread;
+    } else {
+      threads.push(nextThread);
+    }
+
+    await writeConversation(thread.sourceConversationId, { threads });
+    return nextThread;
+  }
+
+  async function deleteThread(conversationId, threadId) {
+    const data = await readConversation(conversationId);
+    const threads = (data.threads || []).filter((thread) => thread.threadId !== threadId);
+    await writeConversation(conversationId, { threads });
+    return threads;
+  }
+
+  async function clearConversation(conversationId) {
+    const key = getStorageKey(conversationId);
+    if (hasChromeStorage()) {
+      await removeChrome(key);
+      return;
+    }
+
+    localStorage.removeItem(key);
+  }
+
+  globalThis.CGQAStorage = {
+    listThreads,
+    saveThread,
+    deleteThread,
+    clearConversation
+  };
+})();

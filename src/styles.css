@@ -1,0 +1,347 @@
+.cgqa-root,
+.cgqa-root * {
+  box-sizing: border-box;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.cgqa-root {
+  position: fixed;
+  top: 24%;
+  right: 28px;
+  z-index: 2147483000;
+  display: flex;
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(620px, calc(100vh - 72px));
+  overflow: hidden;
+  flex-direction: column;
+  color: #1f2933;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(212, 219, 226, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 18px 60px rgba(15, 23, 42, 0.16), 0 4px 18px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.cgqa-root[hidden] {
+  display: none;
+}
+
+.cgqa-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 10px;
+}
+
+.cgqa-panel-title {
+  margin: 0;
+  color: #111827;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 650;
+}
+
+.cgqa-panel-subtitle {
+  margin-top: 6px;
+  color: #7b8491;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.cgqa-icon-button,
+.cgqa-send-button,
+.cgqa-text-button,
+.cgqa-selection-menu button,
+.cgqa-quote-chip {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cgqa-icon-button {
+  width: 28px;
+  height: 28px;
+  color: #111827;
+  background: transparent;
+  border-radius: 999px;
+  font-size: 19px;
+  line-height: 1;
+}
+
+.cgqa-icon-button:hover {
+  background: #eef2f4;
+}
+
+.cgqa-quote-preview {
+  max-height: 88px;
+  margin: 0 20px 12px;
+  overflow: auto;
+  color: #52606d;
+  background: #f6faf8;
+  border: 1px solid #dbe9e2;
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.cgqa-messages {
+  display: flex;
+  min-height: 160px;
+  overflow: auto;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 20px 16px;
+}
+
+.cgqa-empty {
+  color: #8792a0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.cgqa-message {
+  display: grid;
+  grid-template-columns: 30px 1fr;
+  gap: 9px;
+  align-items: start;
+}
+
+.cgqa-message-meta {
+  color: #111827;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 24px;
+}
+
+.cgqa-message-assistant .cgqa-message-meta {
+  grid-column: 1 / -1;
+  padding-left: 30px;
+}
+
+.cgqa-message-assistant .cgqa-message-body {
+  grid-column: 1 / -1;
+  margin-left: 30px;
+}
+
+.cgqa-message-body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: #243240;
+  background: #f7f8f8;
+  border: 1px solid #e6eaee;
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 23px;
+}
+
+.cgqa-message-user .cgqa-message-body {
+  background: linear-gradient(135deg, #f5fbf8, #eef8f2);
+  border-color: #daeae1;
+}
+
+.cgqa-message-body.is-generating {
+  color: #6b7280;
+}
+
+.cgqa-message-body.is-failed {
+  color: #9f1239;
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+
+.cgqa-panel-footer {
+  padding: 12px 20px 18px;
+  border-top: 1px solid #edf0f2;
+}
+
+.cgqa-input-row {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e2e8ed;
+  border-radius: 18px;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.05);
+}
+
+.cgqa-input {
+  min-height: 36px;
+  max-height: 110px;
+  flex: 1;
+  resize: vertical;
+  color: #111827;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  padding: 8px 6px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.cgqa-input::placeholder {
+  color: #a0a8b2;
+}
+
+.cgqa-send-button {
+  display: inline-flex;
+  width: 34px;
+  height: 34px;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #fff;
+  background: #16b45f;
+  border-radius: 999px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.cgqa-send-button:hover {
+  background: #0f9f50;
+}
+
+.cgqa-panel-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 9px;
+}
+
+.cgqa-text-button {
+  color: #64748b;
+  background: transparent;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.cgqa-text-button:hover {
+  color: #0f172a;
+}
+
+.cgqa-selection-menu {
+  position: absolute;
+  z-index: 2147483001;
+  padding: 6px;
+  background: rgba(32, 38, 46, 0.96);
+  border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.2);
+}
+
+.cgqa-selection-menu button {
+  color: #fff;
+  background: transparent;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.cgqa-selection-menu button:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.cgqa-thread-choice-menu {
+  display: flex;
+  max-width: 300px;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cgqa-thread-choice-menu button {
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cgqa-toast {
+  position: fixed;
+  right: 28px;
+  bottom: 28px;
+  z-index: 2147483002;
+  max-width: min(380px, calc(100vw - 32px));
+  transform: translateY(12px);
+  opacity: 0;
+  pointer-events: none;
+  color: #fff;
+  background: rgba(17, 24, 39, 0.94);
+  border-radius: 12px;
+  padding: 10px 13px;
+  font-size: 13px;
+  line-height: 19px;
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.cgqa-toast.is-visible {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.cgqa-quote-mark {
+  background: rgba(217, 249, 231, 0.78);
+  border-bottom: 1px dashed #22c55e;
+  border-radius: 6px;
+  padding: 0 2px;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.cgqa-quote-mark.is-active {
+  background: rgba(187, 247, 208, 0.95);
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.18);
+}
+
+.cgqa-quote-mark-block {
+  display: inline-flex;
+  margin: 6px 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.cgqa-quote-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-left: 6px;
+  vertical-align: baseline;
+  color: #0f2f24;
+  background: #daf7e7;
+  border: 1px solid #b7ebce;
+  border-radius: 999px;
+  padding: 3px 11px;
+  font-size: 13px;
+  font-weight: 620;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.cgqa-quote-chip:hover {
+  background: #c8f2d9;
+}
+
+.cgqa-folded-prompt {
+  color: #536171;
+  background: #f7faf9;
+  border: 1px solid #dfe7e2;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.cgqa-folded-prompt summary {
+  cursor: pointer;
+  color: #1f513d;
+  font-weight: 620;
+}
+
+.cgqa-folded-prompt pre {
+  margin: 10px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: #52606d;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
