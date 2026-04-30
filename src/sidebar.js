@@ -14,7 +14,9 @@
 
   function buildSidebar(callbacks) {
     const root = createElement("aside", "cgqa-root");
-    root.hidden = true;
+    root.id = "cgqa-root";
+    root.setAttribute("aria-live", "polite");
+    forceClose(root);
 
     const header = createElement("header", "cgqa-panel-header");
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
@@ -57,15 +59,15 @@
     actions.append(deleteThread, clearConversation);
     footer.append(inputRow, actions);
     root.append(header, quote, messages, footer);
-    document.documentElement.appendChild(root);
+    appendOverlayRoot(root);
 
     function render(thread) {
       if (!thread) {
-        root.hidden = true;
+        forceClose(root);
         return;
       }
 
-      root.hidden = false;
+      forceOpen(root);
       title.textContent = `引用 ${thread.displayIndex}`;
       subtitle.textContent = "围绕该引用继续提问";
       quote.textContent = thread.quoteText || "";
@@ -83,7 +85,7 @@
     }
 
     function renderHelp() {
-      root.hidden = false;
+      forceOpen(root);
       title.textContent = "批注引用";
       subtitle.textContent = "先选择一段 ChatGPT 回复";
       quote.textContent = "在 ChatGPT 的回复正文里划选文字，然后点击浮动的“批注”按钮。创建后，同一引用的追问会保存在这里。";
@@ -98,7 +100,35 @@
       input.focus();
     }
 
-    return { render, renderHelp, focusInput, root };
+    function isOpen() {
+      return root.classList.contains("is-open");
+    }
+
+    return { render, renderHelp, focusInput, isOpen, root };
+  }
+
+  function appendOverlayRoot(root) {
+    const parent = document.body || document.documentElement;
+    parent.appendChild(root);
+  }
+
+  function forceOpen(root) {
+    root.removeAttribute("hidden");
+    root.classList.add("is-open");
+    root.style.setProperty("display", "flex", "important");
+    root.style.setProperty("position", "fixed", "important");
+    root.style.setProperty("top", "160px", "important");
+    root.style.setProperty("right", "28px", "important");
+    root.style.setProperty("z-index", "2147483647", "important");
+    root.style.setProperty("visibility", "visible", "important");
+    root.style.setProperty("opacity", "1", "important");
+    root.style.setProperty("pointer-events", "auto", "important");
+  }
+
+  function forceClose(root) {
+    root.classList.remove("is-open");
+    root.style.setProperty("display", "none", "important");
+    root.setAttribute("hidden", "hidden");
   }
 
   function renderMessage(message) {
@@ -133,7 +163,7 @@
     button.addEventListener("pointerdown", submit);
     button.addEventListener("click", submit);
     menu.append(button);
-    document.documentElement.appendChild(menu);
+    appendOverlayRoot(menu);
 
     const top = Math.max(8, window.scrollY + rect.top - menu.offsetHeight - 10);
     const left = Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - menu.offsetWidth - 12);
@@ -158,7 +188,7 @@
       });
       menu.append(button);
     });
-    document.documentElement.appendChild(menu);
+    appendOverlayRoot(menu);
 
     const top = Math.min(window.scrollY + rect.bottom + 8, window.scrollY + window.innerHeight - menu.offsetHeight - 12);
     const left = Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - menu.offsetWidth - 12);
@@ -170,7 +200,7 @@
     let toast = document.querySelector(".cgqa-toast");
     if (!toast) {
       toast = createElement("div", "cgqa-toast");
-      document.documentElement.appendChild(toast);
+      appendOverlayRoot(toast);
     }
     toast.textContent = message;
     toast.classList.add("is-visible");

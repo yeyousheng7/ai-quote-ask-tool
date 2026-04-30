@@ -195,6 +195,7 @@
   function openThread(threadId) {
     const thread = getThread(threadId);
     if (!thread) {
+      console.warn("[CGQA] openThread missing thread", threadId);
       return;
     }
 
@@ -202,6 +203,10 @@
     CGQADom.setActiveMark(threadId);
     sidebar.render(thread);
     sidebar.focusInput();
+    if (!sidebar.isOpen || !sidebar.isOpen()) {
+      console.warn("[CGQA] sidebar did not report open after render", threadId);
+      sidebar.render(thread);
+    }
   }
 
   function onQuoteMarkClick(event) {
@@ -236,7 +241,7 @@
   }
 
   function togglePanel() {
-    if (state.activeThreadId) {
+    if (sidebar.isOpen && sidebar.isOpen()) {
       closeSidebar();
       return;
     }

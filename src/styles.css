@@ -6,10 +6,10 @@
 
 .cgqa-root {
   position: fixed;
-  top: 24%;
+  top: 160px;
   right: 28px;
-  z-index: 2147483000;
-  display: flex;
+  z-index: 2147483647;
+  display: none;
   width: min(360px, calc(100vw - 32px));
   max-height: min(620px, calc(100vh - 72px));
   overflow: hidden;
@@ -22,8 +22,11 @@
   backdrop-filter: blur(14px);
 }
 
-.cgqa-root[hidden] {
-  display: none;
+.cgqa-root.is-open {
+  display: flex;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .cgqa-panel-header {
