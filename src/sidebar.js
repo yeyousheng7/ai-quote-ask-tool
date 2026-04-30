@@ -38,8 +38,8 @@
       "z-index: 2147483647 !important",
       "display: flex !important",
       "flex-direction: column !important",
-      "width: min(326px, calc(100vw - 24px)) !important",
-      "max-height: min(604px, calc(100vh - 48px)) !important",
+      "width: min(408px, calc(100vw - 24px)) !important",
+      "max-height: min(632px, calc(100vh - 48px)) !important",
       "overflow: hidden !important",
       "visibility: visible !important",
       "opacity: 1 !important",
@@ -47,8 +47,8 @@
       "color: #1f2933 !important",
       "background: rgba(255,255,255,0.97) !important",
       "border: 1px solid rgba(229,231,235,0.95) !important",
-      "border-radius: 16px !important",
-      "box-shadow: 0 18px 45px rgba(15,23,42,0.14), 0 3px 12px rgba(15,23,42,0.08) !important",
+      "border-radius: 22px !important",
+      "box-shadow: 0 20px 54px rgba(15,23,42,0.14), 0 4px 14px rgba(15,23,42,0.08) !important",
       "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important"
     ].join(";");
   }
@@ -131,7 +131,7 @@
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
     const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注引用" : `引用 ${thread.displayIndex}`);
     const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该引用继续提问");
-    const close = createElement("button", "cgqa-icon-button", "x");
+    const close = createElement("button", "cgqa-icon-button", "×");
     close.type = "button";
     close.title = "关闭";
     close.addEventListener("click", () => callbacks.onClose());
@@ -254,8 +254,8 @@
   function getPanelSize(panel) {
     const rect = panel.getBoundingClientRect();
     return {
-      width: rect.width || Math.min(326, window.innerWidth - PANEL_MARGIN * 2),
-      height: rect.height || Math.min(640, window.innerHeight - PANEL_MARGIN * 2)
+      width: rect.width || Math.min(408, window.innerWidth - PANEL_MARGIN * 2),
+      height: rect.height || Math.min(632, window.innerHeight - PANEL_MARGIN * 2)
     };
   }
 
