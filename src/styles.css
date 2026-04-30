@@ -37,6 +37,20 @@
   padding: 18px 20px 10px;
 }
 
+.cgqa-panel-drag-handle {
+  cursor: move;
+  touch-action: none;
+  user-select: none;
+}
+
+.cgqa-root.is-dragging {
+  cursor: move;
+}
+
+.cgqa-panel-drag-handle .cgqa-icon-button {
+  cursor: pointer;
+}
+
 .cgqa-panel-title {
   margin: 0;
   color: #111827;

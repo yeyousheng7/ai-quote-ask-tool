@@ -1,6 +1,13 @@
 (function () {
   "use strict";
 
+  const PANEL_POSITION_KEY = "cgqa:panel-position";
+  const PANEL_MARGIN = 12;
+  const PANEL_DEFAULT_RIGHT = 28;
+  const PANEL_DEFAULT_TOP = 140;
+
+  let panelPosition = readPanelPosition();
+
   function createElement(tag, className, text) {
     const element = document.createElement(tag);
     if (className) {
@@ -25,12 +32,13 @@
       "all: initial !important",
       "box-sizing: border-box !important",
       "position: fixed !important",
-      "top: 140px !important",
-      "right: 28px !important",
+      "top: 0 !important",
+      "left: 0 !important",
+      "right: auto !important",
       "z-index: 2147483647 !important",
       "display: flex !important",
       "flex-direction: column !important",
-      "width: min(380px, calc(100vw - 32px)) !important",
+      "width: min(380px, calc(100vw - 24px)) !important",
       "max-height: min(640px, calc(100vh - 48px)) !important",
       "overflow: hidden !important",
       "visibility: visible !important",
@@ -59,6 +67,7 @@
 
       root = createPanel(callbacks, thread);
       input = root.querySelector(".cgqa-input");
+      syncPanelToViewport(root);
     }
 
     function renderHelp() {
@@ -69,6 +78,7 @@
         help: true
       });
       input = root.querySelector(".cgqa-input");
+      syncPanelToViewport(root);
       if (input) {
         input.disabled = true;
       }
@@ -86,7 +96,22 @@
       return Boolean(root && root.isConnected);
     }
 
-    return { render, renderHelp, focusInput, isOpen };
+    function handleResize() {
+      if (root && root.isConnected) {
+        syncPanelToViewport(root);
+      }
+    }
+
+    function destroy() {
+      window.removeEventListener("resize", handleResize);
+      removePanel();
+      root = null;
+      input = null;
+    }
+
+    window.addEventListener("resize", handleResize);
+
+    return { render, renderHelp, focusInput, isOpen, destroy };
   }
 
   function createPanel(callbacks, thread) {
@@ -107,6 +132,7 @@
     close.addEventListener("click", () => callbacks.onClose());
     titleWrap.append(title, subtitle);
     header.append(titleWrap, close);
+    bindPanelDrag(panel, header);
 
     const quote = createElement("blockquote", "cgqa-quote-preview", thread.quoteText || "");
     const messages = createElement("div", "cgqa-messages");
@@ -149,6 +175,126 @@
     appendOverlayRoot(panel);
     messages.scrollTop = messages.scrollHeight;
     return panel;
+  }
+
+  function bindPanelDrag(panel, handle) {
+    handle.classList.add("cgqa-panel-drag-handle");
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || isInteractiveDragTarget(event.target)) {
+        return;
+      }
+
+      const rect = panel.getBoundingClientRect();
+      const pointerId = event.pointerId;
+      const offsetX = event.clientX - rect.left;
+      const offsetY = event.clientY - rect.top;
+
+      panel.classList.add("is-dragging");
+      handle.setPointerCapture(pointerId);
+
+      const move = (moveEvent) => {
+        if (moveEvent.pointerId !== pointerId) {
+          return;
+        }
+        const nextPosition = clampPanelPosition(panel, {
+          x: moveEvent.clientX - offsetX,
+          y: moveEvent.clientY - offsetY
+        });
+        panelPosition = nextPosition;
+        applyPanelPosition(panel, nextPosition);
+      };
+
+      const stop = (stopEvent) => {
+        if (stopEvent.pointerId !== pointerId) {
+          return;
+        }
+        panel.classList.remove("is-dragging");
+        savePanelPosition(panelPosition);
+        if (handle.hasPointerCapture(pointerId)) {
+          handle.releasePointerCapture(pointerId);
+        }
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", stop);
+        handle.removeEventListener("pointercancel", stop);
+      };
+
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", stop);
+      handle.addEventListener("pointercancel", stop);
+      event.preventDefault();
+    });
+  }
+
+  function isInteractiveDragTarget(target) {
+    return Boolean(target && target.closest && target.closest("button, input, textarea, select, a, [contenteditable='true']"));
+  }
+
+  function syncPanelToViewport(panel) {
+    const nextPosition = clampPanelPosition(panel, panelPosition || getDefaultPanelPosition(panel));
+    panelPosition = nextPosition;
+    applyPanelPosition(panel, nextPosition);
+  }
+
+  function getDefaultPanelPosition(panel) {
+    const size = getPanelSize(panel);
+    return {
+      x: window.innerWidth - size.width - PANEL_DEFAULT_RIGHT,
+      y: PANEL_DEFAULT_TOP
+    };
+  }
+
+  function getPanelSize(panel) {
+    const rect = panel.getBoundingClientRect();
+    return {
+      width: rect.width || Math.min(380, window.innerWidth - PANEL_MARGIN * 2),
+      height: rect.height || Math.min(640, window.innerHeight - PANEL_MARGIN * 2)
+    };
+  }
+
+  function clampPanelPosition(panel, position) {
+    const size = getPanelSize(panel);
+    const maxX = Math.max(PANEL_MARGIN, window.innerWidth - size.width - PANEL_MARGIN);
+    const maxY = Math.max(PANEL_MARGIN, window.innerHeight - size.height - PANEL_MARGIN);
+    return {
+      x: clamp(Number(position && position.x), PANEL_MARGIN, maxX),
+      y: clamp(Number(position && position.y), PANEL_MARGIN, maxY)
+    };
+  }
+
+  function clamp(value, min, max) {
+    if (!Number.isFinite(value)) {
+      return min;
+    }
+    return Math.min(Math.max(value, min), max);
+  }
+
+  function applyPanelPosition(panel, position) {
+    panel.style.setProperty("left", `${Math.round(position.x)}px`, "important");
+    panel.style.setProperty("top", `${Math.round(position.y)}px`, "important");
+    panel.style.setProperty("right", "auto", "important");
+  }
+
+  function readPanelPosition() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(PANEL_POSITION_KEY) || "null");
+      if (parsed && Number.isFinite(parsed.x) && Number.isFinite(parsed.y)) {
+        return parsed;
+      }
+    } catch (_error) {
+      // Ignore invalid saved positions.
+    }
+    return null;
+  }
+
+  function savePanelPosition(position) {
+    if (!position) {
+      return;
+    }
+    try {
+      localStorage.setItem(PANEL_POSITION_KEY, JSON.stringify(position));
+    } catch (_error) {
+      // Position persistence is a convenience; dragging should still work.
+    }
   }
 
   function renderMessage(message) {

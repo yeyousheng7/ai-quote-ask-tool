@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.2.5-stabilize-flow";
+  const CONTENT_VERSION = "0.2.6-draggable-panel";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -677,7 +677,9 @@
     }
     state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
     CGQASidebar.hideSelectionMenu();
-    if (sidebar) {
+    if (sidebar && typeof sidebar.destroy === "function") {
+      sidebar.destroy();
+    } else if (sidebar) {
       sidebar.render(null);
     }
     if (CGQADom.syncHiddenMainTurns) {
