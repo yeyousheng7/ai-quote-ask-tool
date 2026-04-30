@@ -19,6 +19,16 @@ Chrome/Edge Manifest V3 browser extension for lightweight quote annotation threa
 - Questions typed in the panel are saved in the quote thread and sent through the ChatGPT main composer with the quote as hidden context.
 - Threads are stored locally with `chrome.storage.local`, grouped by conversation id.
 
+## Internal Flow
+
+The extension is split into three runtime responsibilities:
+
+- `src/content.js` is the orchestration layer. It owns lifecycle, event binding, thread state, and the quote flow: validate selection -> build thread -> register thread -> open panel -> persist thread -> render marker.
+- `src/dom.js` is the ChatGPT page adapter. It owns selectors, selection offsets, quote marker rendering/restoration, prompt filling, send button lookup, and assistant response capture.
+- `src/sidebar.js` is the panel renderer. It rebuilds the overlay panel on open so old hidden nodes or stale injected scripts cannot keep the panel invisible.
+
+When changing behavior, keep the order above intact. Opening the panel should stay independent from storage and marker rendering; those failures should degrade with a toast instead of blocking the visible annotation thread.
+
 ## Notes
 
 - The extension does not call OpenAI APIs directly.

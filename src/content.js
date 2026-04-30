@@ -1,13 +1,16 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.1.5-panel-rebuild";
+  const CONTENT_VERSION = "0.2.0-stable-flow";
+  const RUNTIME_KEY = "CGQAContentRuntime";
 
-  if (globalThis.CGQAContentVersion === CONTENT_VERSION) {
+  const existingRuntime = globalThis[RUNTIME_KEY];
+  if (existingRuntime && existingRuntime.version === CONTENT_VERSION) {
     return;
   }
-  globalThis.CGQAContentVersion = CONTENT_VERSION;
-  globalThis.CGQAContentLoaded = true;
+  if (existingRuntime && typeof existingRuntime.destroy === "function") {
+    existingRuntime.destroy();
+  }
 
   const state = {
     conversationId: "",
@@ -17,8 +20,9 @@
     pendingResponse: null,
     observer: null,
     restoreTimer: 0,
+    creatingThread: false,
     restoring: false,
-    creatingThread: false
+    cleanupTasks: []
   };
 
   let sidebar = null;
@@ -47,54 +51,69 @@
   async function loadThreads() {
     state.conversationId = CGQADom.getConversationId();
     state.threads = await CGQAStorage.listThreads(state.conversationId);
-    normalizeDisplayIndexes();
+    await normalizeDisplayIndexes();
   }
 
-  function normalizeDisplayIndexes() {
-    let changed = false;
+  async function normalizeDisplayIndexes() {
+    const writes = [];
     state.threads.forEach((thread, index) => {
       if (!thread.displayIndex) {
         thread.displayIndex = index + 1;
-        changed = true;
+        writes.push(CGQAStorage.saveThread(thread));
       }
     });
-    if (changed) {
-      state.threads.forEach((thread) => CGQAStorage.saveThread(thread));
-    }
+    await Promise.allSettled(writes);
   }
 
   function bindEvents() {
-    document.addEventListener("mouseup", onMouseUp, true);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") {
-        CGQASidebar.hideSelectionMenu();
-      }
-    });
-    document.addEventListener("click", onQuoteMarkClick, true);
-    chrome.runtime.onMessage.addListener((message) => {
-      if (message && message.type === "CGQA_TOGGLE_PANEL") {
-        togglePanel();
-      }
-    });
+    addEvent(document, "mouseup", handleMouseUp, true);
+    addEvent(document, "keydown", handleKeydown, true);
+    addEvent(document, "click", handleQuoteMarkClick, true);
 
-    state.observer = new MutationObserver(() => {
-      if (state.restoring) {
-        return;
-      }
-      const nextConversationId = CGQADom.getConversationId();
-      if (nextConversationId !== state.conversationId) {
-        loadThreads().then(scheduleRestore);
-        return;
-      }
-      scheduleRestore();
-      capturePendingAssistantIfReady();
-      foldPluginPrompts();
-    });
+    if (globalThis.chrome && chrome.runtime && chrome.runtime.onMessage) {
+      chrome.runtime.onMessage.addListener(handleRuntimeMessage);
+      state.cleanupTasks.push(() => chrome.runtime.onMessage.removeListener(handleRuntimeMessage));
+    }
+
+    state.observer = new MutationObserver(handlePageMutation);
     state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
 
-  function onMouseUp(event) {
-    if (eventTargetIsPluginUi(event.target)) {
+  function addEvent(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    state.cleanupTasks.push(() => target.removeEventListener(type, handler, options));
+  }
+
+  function handleRuntimeMessage(message) {
+    if (message && message.type === "CGQA_TOGGLE_PANEL") {
+      togglePanel();
+    }
+  }
+
+  function handleKeydown(event) {
+    if (event.key === "Escape") {
+      CGQASidebar.hideSelectionMenu();
+    }
+  }
+
+  function handlePageMutation() {
+    if (state.restoring) {
+      return;
+    }
+
+    const nextConversationId = CGQADom.getConversationId();
+    if (nextConversationId !== state.conversationId) {
+      loadThreads().then(scheduleRestore);
+      return;
+    }
+
+    scheduleRestore();
+    capturePendingAssistantIfReady();
+    foldPluginPrompts();
+  }
+
+  function handleMouseUp(event) {
+    if (isPluginUi(event.target)) {
       return;
     }
 
@@ -110,88 +129,116 @@
       }
 
       state.pendingSelection = result;
-      const rect = result.range.getBoundingClientRect();
-      CGQASidebar.showSelectionMenu(rect, createThreadFromSelection);
+      CGQASidebar.showSelectionMenu(result.range.getBoundingClientRect(), createThreadFromSelection);
     }, 0);
   }
 
-  function eventTargetIsPluginUi(target) {
+  function isPluginUi(target) {
     return Boolean(target && target.closest && target.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-toast"));
   }
 
-  async function createThreadFromSelection() {
+  function createThreadFromSelection() {
     if (state.creatingThread) {
       return;
     }
 
     state.creatingThread = true;
-    const selection = state.pendingSelection;
     CGQASidebar.hideSelectionMenu();
-    if (!selection || !selection.ok) {
-      state.creatingThread = false;
-      return;
-    }
 
     try {
+      const selection = state.pendingSelection;
+      if (!selection || !selection.ok) {
+        return;
+      }
+
       if (selection.complex) {
         CGQASidebar.showToast("当前选区包含公式或代码结构，将使用保守标记。");
       }
 
-      const now = Date.now();
-      const quoteId = uid("quote");
-      const threadId = uid("thread");
-      const thread = {
-        threadId,
-        quoteId,
-        quoteText: selection.exactText || selection.selectedText,
-        sourceConversationId: state.conversationId,
-        sourceTurnId: CGQADom.getTurnId(selection.turn),
-        sourceMessageId: CGQADom.getMessageId(selection.turn),
-        displayIndex: state.threads.length + 1,
-        anchor: {
-          quoteId,
-          sourceConversationId: state.conversationId,
-          sourceTurnId: CGQADom.getTurnId(selection.turn),
-          sourceMessageId: CGQADom.getMessageId(selection.turn),
-          startOffset: selection.startOffset,
-          endOffset: selection.endOffset,
-          exactText: selection.exactText || selection.selectedText,
-          prefixText: selection.prefixText || "",
-          suffixText: selection.suffixText || "",
-          threadId
-        },
-        messages: [],
-        createdAt: now,
-        updatedAt: now
-      };
-
-      state.threads.push(thread);
-      openThread(threadId);
-
-      CGQAStorage.saveThread(thread).catch((error) => {
-        console.error("[CGQA] save thread failed", error);
-        CGQASidebar.showToast("批注已打开，但本地保存失败。");
-      });
-
-      try {
-        const rendered = CGQADom.renderThreadMark(thread);
-        if (!rendered) {
-          CGQASidebar.showToast("已创建批注，但当前 DOM 无法安全渲染正文标记。");
-        }
-      } catch (error) {
-        console.error("[CGQA] render mark failed", error);
-        CGQASidebar.showToast("已打开批注小窗，但正文标记渲染失败。");
-      }
-
-      const currentSelection = window.getSelection();
-      if (currentSelection) {
-        currentSelection.removeAllRanges();
-      }
+      const thread = buildThread(selection);
+      registerThread(thread);
+      openThread(thread.threadId);
+      persistThread(thread);
+      renderThreadMark(thread, { notify: true });
+      clearCurrentSelection();
+      state.pendingSelection = null;
     } catch (error) {
       console.error("[CGQA] create thread failed", error);
       CGQASidebar.showToast("创建批注失败，请刷新页面后重试。");
     } finally {
       state.creatingThread = false;
+    }
+  }
+
+  function buildThread(selection) {
+    const now = Date.now();
+    const quoteId = uid("quote");
+    const threadId = uid("thread");
+    const sourceTurnId = CGQADom.getTurnId(selection.turn);
+    const sourceMessageId = CGQADom.getMessageId(selection.turn);
+    const quoteText = selection.exactText || selection.selectedText;
+
+    return {
+      threadId,
+      quoteId,
+      quoteText,
+      sourceConversationId: state.conversationId,
+      sourceTurnId,
+      sourceMessageId,
+      displayIndex: getNextDisplayIndex(),
+      anchor: {
+        quoteId,
+        sourceConversationId: state.conversationId,
+        sourceTurnId,
+        sourceMessageId,
+        startOffset: selection.startOffset,
+        endOffset: selection.endOffset,
+        exactText: quoteText,
+        prefixText: selection.prefixText || "",
+        suffixText: selection.suffixText || "",
+        threadId
+      },
+      messages: [],
+      createdAt: now,
+      updatedAt: now
+    };
+  }
+
+  function registerThread(thread) {
+    state.threads.push(thread);
+  }
+
+  function getNextDisplayIndex() {
+    return state.threads.reduce((max, thread) => {
+      return Math.max(max, Number(thread.displayIndex) || 0);
+    }, 0) + 1;
+  }
+
+  function persistThread(thread) {
+    CGQAStorage.saveThread(thread).catch((error) => {
+      console.error("[CGQA] save thread failed", error);
+      CGQASidebar.showToast("批注已打开，但本地保存失败。");
+    });
+  }
+
+  function renderThreadMark(thread, options = {}) {
+    try {
+      const rendered = CGQADom.renderThreadMark(thread);
+      if (!rendered && options.notify) {
+        CGQASidebar.showToast("已创建批注，但当前 DOM 无法安全渲染正文标记。");
+      }
+    } catch (error) {
+      console.error("[CGQA] render mark failed", error);
+      if (options.notify) {
+        CGQASidebar.showToast("已打开批注小窗，但正文标记渲染失败。");
+      }
+    }
+  }
+
+  function clearCurrentSelection() {
+    const selection = window.getSelection();
+    if (selection) {
+      selection.removeAllRanges();
     }
   }
 
@@ -206,35 +253,30 @@
     CGQADom.setActiveMark(threadId);
     sidebar.render(thread);
     sidebar.focusInput();
-    if (!sidebar.isOpen || !sidebar.isOpen()) {
-      console.warn("[CGQA] sidebar did not report open after render", threadId);
-      sidebar.render(thread);
-    }
   }
 
-  function onQuoteMarkClick(event) {
+  function handleQuoteMarkClick(event) {
     const path = event.composedPath ? event.composedPath() : [];
     const marks = path.filter((node) => node && node.classList && node.classList.contains("cgqa-quote-mark"));
     if (marks.length === 0) {
       return;
     }
 
-    const uniqueThreadIds = [...new Set(marks.map((mark) => mark.dataset.threadId).filter(Boolean))];
-    if (uniqueThreadIds.length === 0) {
+    const threadIds = [...new Set(marks.map((mark) => mark.dataset.threadId).filter(Boolean))];
+    if (threadIds.length === 0) {
       return;
     }
 
     event.preventDefault();
     event.stopPropagation();
 
-    if (uniqueThreadIds.length === 1) {
-      openThread(uniqueThreadIds[0]);
+    if (threadIds.length === 1) {
+      openThread(threadIds[0]);
       return;
     }
 
-    const threads = uniqueThreadIds.map(getThread).filter(Boolean);
-    const target = marks[0];
-    CGQASidebar.showThreadChoiceMenu(target.getBoundingClientRect(), threads, openThread);
+    const threads = threadIds.map(getThread).filter(Boolean);
+    CGQASidebar.showThreadChoiceMenu(marks[0].getBoundingClientRect(), threads, openThread);
   }
 
   function closeSidebar() {
@@ -312,6 +354,7 @@
       threadId: thread.threadId,
       knownMessageIds: new Set(CGQADom.getAssistantMessageRecords().map((record) => record.messageId).filter(Boolean))
     };
+
     try {
       await CGQADom.submitPrompt(buildPrompt(thread, question));
     } catch (error) {
@@ -332,7 +375,10 @@
     if (!thread) {
       return;
     }
-    const generating = [...thread.messages].reverse().find((message) => message.role === "assistant" && message.status === "generating");
+
+    const generating = [...thread.messages].reverse().find((message) => {
+      return message.role === "assistant" && message.status === "generating";
+    });
     if (!generating) {
       return;
     }
@@ -383,7 +429,7 @@
     state.restoreTimer = setTimeout(() => {
       state.restoring = true;
       CGQADom.clearRenderedMarks();
-      state.threads.forEach((thread) => CGQADom.renderThreadMark(thread));
+      state.threads.forEach(renderThreadMark);
       if (state.activeThreadId) {
         CGQADom.setActiveMark(state.activeThreadId);
       }
@@ -417,9 +463,28 @@
       });
   }
 
-  globalThis.CGQAApp = {
-    openThread
+  function destroy() {
+    clearTimeout(state.restoreTimer);
+    clearTimeout(capturePendingAssistantIfReady.timer);
+    if (state.observer) {
+      state.observer.disconnect();
+      state.observer = null;
+    }
+    state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
+    CGQASidebar.hideSelectionMenu();
+    if (sidebar) {
+      sidebar.render(null);
+    }
+  }
+
+  globalThis[RUNTIME_KEY] = {
+    version: CONTENT_VERSION,
+    destroy,
+    openThread,
+    togglePanel
   };
+  globalThis.CGQAApp = globalThis[RUNTIME_KEY];
+  globalThis.CGQAContentVersion = CONTENT_VERSION;
 
   init().catch((error) => {
     console.error("[CGQA] init failed", error);
