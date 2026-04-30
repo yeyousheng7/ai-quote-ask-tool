@@ -1,9 +1,12 @@
 (function () {
   "use strict";
 
-  if (globalThis.CGQAContentLoaded) {
+  const CONTENT_VERSION = "0.1.5-panel-rebuild";
+
+  if (globalThis.CGQAContentVersion === CONTENT_VERSION) {
     return;
   }
+  globalThis.CGQAContentVersion = CONTENT_VERSION;
   globalThis.CGQAContentLoaded = true;
 
   const state = {

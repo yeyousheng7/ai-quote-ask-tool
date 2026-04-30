@@ -12,16 +12,95 @@
     return element;
   }
 
+  function appendOverlayRoot(node) {
+    (document.body || document.documentElement).appendChild(node);
+  }
+
+  function removePanel() {
+    document.querySelectorAll(".cgqa-root").forEach((node) => node.remove());
+  }
+
+  function applyPanelStyle(panel) {
+    panel.style.cssText = [
+      "all: initial !important",
+      "box-sizing: border-box !important",
+      "position: fixed !important",
+      "top: 140px !important",
+      "right: 28px !important",
+      "z-index: 2147483647 !important",
+      "display: flex !important",
+      "flex-direction: column !important",
+      "width: min(380px, calc(100vw - 32px)) !important",
+      "max-height: min(640px, calc(100vh - 48px)) !important",
+      "overflow: hidden !important",
+      "visibility: visible !important",
+      "opacity: 1 !important",
+      "pointer-events: auto !important",
+      "color: #1f2933 !important",
+      "background: rgba(255,255,255,0.98) !important",
+      "border: 1px solid rgba(212,219,226,0.95) !important",
+      "border-radius: 18px !important",
+      "box-shadow: 0 18px 60px rgba(15,23,42,0.20), 0 4px 18px rgba(15,23,42,0.10) !important",
+      "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important"
+    ].join(";");
+  }
+
   function buildSidebar(callbacks) {
-    const root = createElement("aside", "cgqa-root");
-    root.id = "cgqa-root";
-    root.setAttribute("aria-live", "polite");
-    forceClose(root);
+    let root = null;
+    let input = null;
+
+    function render(thread) {
+      if (!thread) {
+        removePanel();
+        root = null;
+        input = null;
+        return;
+      }
+
+      root = createPanel(callbacks, thread);
+      input = root.querySelector(".cgqa-input");
+    }
+
+    function renderHelp() {
+      root = createPanel(callbacks, {
+        displayIndex: "",
+        quoteText: "在 ChatGPT 的回复正文里划选文字，然后点击浮动的“批注”按钮。创建后，同一引用的追问会保存在这里。",
+        messages: [],
+        help: true
+      });
+      input = root.querySelector(".cgqa-input");
+      if (input) {
+        input.disabled = true;
+      }
+    }
+
+    function focusInput() {
+      if (!input) {
+        return;
+      }
+      input.disabled = false;
+      input.focus();
+    }
+
+    function isOpen() {
+      return Boolean(root && root.isConnected);
+    }
+
+    return { render, renderHelp, focusInput, isOpen };
+  }
+
+  function createPanel(callbacks, thread) {
+    removePanel();
+
+    const panel = createElement("aside", "cgqa-root is-open");
+    panel.id = "cgqa-root";
+    panel.setAttribute("aria-live", "polite");
+    applyPanelStyle(panel);
 
     const header = createElement("header", "cgqa-panel-header");
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
-    const title = createElement("h2", "cgqa-panel-title", "引用");
-    const subtitle = createElement("div", "cgqa-panel-subtitle", "围绕该引用继续提问");
+    const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注引用" : `引用 ${thread.displayIndex}`);
+    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该引用继续提问");
     const close = createElement("button", "cgqa-icon-button", "x");
     close.type = "button";
     close.title = "关闭";
@@ -29,8 +108,15 @@
     titleWrap.append(title, subtitle);
     header.append(titleWrap, close);
 
-    const quote = createElement("blockquote", "cgqa-quote-preview");
+    const quote = createElement("blockquote", "cgqa-quote-preview", thread.quoteText || "");
     const messages = createElement("div", "cgqa-messages");
+    if (thread.help) {
+      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注引用。"));
+    } else if (!thread.messages || thread.messages.length === 0) {
+      messages.append(createElement("div", "cgqa-empty", "还没有围绕这个引用的追问。"));
+    } else {
+      thread.messages.forEach((message) => messages.append(renderMessage(message)));
+    }
 
     const footer = createElement("footer", "cgqa-panel-footer");
     const inputRow = createElement("div", "cgqa-input-row");
@@ -58,84 +144,17 @@
     clearConversation.addEventListener("click", () => callbacks.onClearConversation());
     actions.append(deleteThread, clearConversation);
     footer.append(inputRow, actions);
-    root.append(header, quote, messages, footer);
-    appendOverlayRoot(root);
 
-    function render(thread) {
-      if (!thread) {
-        forceClose(root);
-        return;
-      }
-
-      forceOpen(root);
-      title.textContent = `引用 ${thread.displayIndex}`;
-      subtitle.textContent = "围绕该引用继续提问";
-      quote.textContent = thread.quoteText || "";
-      input.value = "";
-      input.disabled = false;
-      messages.innerHTML = "";
-
-      if (!thread.messages || thread.messages.length === 0) {
-        messages.append(createElement("div", "cgqa-empty", "还没有围绕这个引用的追问。"));
-      } else {
-        thread.messages.forEach((message) => messages.append(renderMessage(message)));
-      }
-
-      messages.scrollTop = messages.scrollHeight;
-    }
-
-    function renderHelp() {
-      forceOpen(root);
-      title.textContent = "批注引用";
-      subtitle.textContent = "先选择一段 ChatGPT 回复";
-      quote.textContent = "在 ChatGPT 的回复正文里划选文字，然后点击浮动的“批注”按钮。创建后，同一引用的追问会保存在这里。";
-      input.value = "";
-      input.disabled = true;
-      messages.innerHTML = "";
-      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注引用。"));
-    }
-
-    function focusInput() {
-      input.disabled = false;
-      input.focus();
-    }
-
-    function isOpen() {
-      return root.classList.contains("is-open");
-    }
-
-    return { render, renderHelp, focusInput, isOpen, root };
-  }
-
-  function appendOverlayRoot(root) {
-    const parent = document.body || document.documentElement;
-    parent.appendChild(root);
-  }
-
-  function forceOpen(root) {
-    root.removeAttribute("hidden");
-    root.classList.add("is-open");
-    root.style.setProperty("display", "flex", "important");
-    root.style.setProperty("position", "fixed", "important");
-    root.style.setProperty("top", "160px", "important");
-    root.style.setProperty("right", "28px", "important");
-    root.style.setProperty("z-index", "2147483647", "important");
-    root.style.setProperty("visibility", "visible", "important");
-    root.style.setProperty("opacity", "1", "important");
-    root.style.setProperty("pointer-events", "auto", "important");
-  }
-
-  function forceClose(root) {
-    root.classList.remove("is-open");
-    root.style.setProperty("display", "none", "important");
-    root.setAttribute("hidden", "hidden");
+    panel.append(header, quote, messages, footer);
+    appendOverlayRoot(panel);
+    messages.scrollTop = messages.scrollHeight;
+    return panel;
   }
 
   function renderMessage(message) {
     const item = createElement("article", `cgqa-message cgqa-message-${message.role}`);
     const meta = createElement("div", "cgqa-message-meta", message.role === "user" ? "你" : "ChatGPT");
-    const body = createElement("div", "cgqa-message-body");
-    body.textContent = message.content || "";
+    const body = createElement("div", "cgqa-message-body", message.content || "");
     if (message.status === "generating") {
       body.classList.add("is-generating");
     }
