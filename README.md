@@ -17,6 +17,7 @@ Chrome/Edge Manifest V3 browser extension for lightweight quote annotation threa
 - The selected reply text receives a lightweight `引用 N` marker.
 - A right-side annotation panel opens for that quote.
 - Questions typed in the panel are saved in the quote thread and sent through the ChatGPT main composer with the quote as hidden context.
+- Plugin-generated main-chat prompts and their replies are hidden while the quote thread exists, then restored when the quote is deleted or the conversation annotations are cleared.
 - Threads are stored locally with `chrome.storage.local`, grouped by conversation id.
 
 ## Internal Flow

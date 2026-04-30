@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.2.1-submit-tracking";
+  const CONTENT_VERSION = "0.2.2-main-chat-hide";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -27,6 +27,7 @@
 
   const RESPONSE_STABLE_DELAY_MS = 1400;
   const RESPONSE_TIMEOUT_MS = 120000;
+  const PROMPT_TOKEN_PREFIX = "CGQA_PROMPT";
 
   let sidebar = null;
 
@@ -49,6 +50,7 @@
     await loadThreads();
     bindEvents();
     scheduleRestore();
+    syncMainChatVisibility();
   }
 
   async function loadThreads() {
@@ -112,7 +114,7 @@
 
     scheduleRestore();
     capturePendingAssistantIfReady();
-    foldPluginPrompts();
+    syncMainChatVisibility();
   }
 
   function handleMouseUp(event) {
@@ -202,6 +204,7 @@
         threadId
       },
       messages: [],
+      mainChatItems: [],
       createdAt: now,
       updatedAt: now
     };
@@ -256,6 +259,7 @@
     CGQADom.setActiveMark(threadId);
     sidebar.render(thread);
     sidebar.focusInput();
+    syncMainChatVisibility();
   }
 
   function handleQuoteMarkClick(event) {
@@ -315,11 +319,12 @@
     }
   }
 
-  function buildPrompt(thread, question) {
+  function buildPrompt(thread, question, promptToken) {
     return [
       `围绕 引用 ${thread.displayIndex} 的批注提问`,
       "",
       "你正在回答用户围绕某段引用的追问。请只回答用户问题，不要复述这段系统说明。",
+      "请不要在回答中提及或输出追踪标记。",
       "",
       "<quote>",
       thread.quoteText,
@@ -327,7 +332,11 @@
       "",
       "<user_question>",
       question,
-      "</user_question>"
+      "</user_question>",
+      "",
+      "<tracking_token>",
+      promptToken,
+      "</tracking_token>"
     ].join("\n");
   }
 
@@ -337,6 +346,9 @@
     if (!thread || !question) {
       return;
     }
+
+    const mainChatItem = createMainChatItem();
+    thread.mainChatItems = [...getMainChatItems(thread), mainChatItem];
 
     const userMessage = {
       role: "user",
@@ -352,24 +364,61 @@
     };
     thread.messages.push(userMessage, assistantMessage);
     await saveAndRenderThread(thread);
+    syncMainChatVisibility();
 
-    state.pendingResponse = createResponseTracker(thread.threadId);
+    state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
 
     try {
-      await CGQADom.submitPrompt(buildPrompt(thread, question));
+      await CGQADom.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
+      syncMainChatVisibility();
     } catch (error) {
       state.pendingResponse = null;
       assistantMessage.content = error.message || "发送失败。";
       assistantMessage.status = "failed";
       await saveAndRenderThread(thread);
+      syncMainChatVisibility();
       CGQASidebar.showToast(assistantMessage.content);
     }
   }
 
-  function createResponseTracker(threadId) {
+  function createMainChatItem() {
+    return {
+      promptToken: `${PROMPT_TOKEN_PREFIX}:${uid("prompt")}`,
+      createdAt: Date.now()
+    };
+  }
+
+  function getMainChatItems(thread) {
+    return Array.isArray(thread && thread.mainChatItems) ? thread.mainChatItems : [];
+  }
+
+  function getMainChatHideTargets() {
+    const targets = [];
+    state.threads.forEach((thread) => {
+      getMainChatItems(thread).forEach((item) => {
+        if (item && item.promptToken) {
+          targets.push({
+            threadId: thread.threadId,
+            promptToken: item.promptToken
+          });
+        }
+      });
+    });
+    return targets;
+  }
+
+  function syncMainChatVisibility() {
+    if (!CGQADom.syncHiddenMainTurns) {
+      return;
+    }
+    CGQADom.syncHiddenMainTurns(getMainChatHideTargets());
+  }
+
+  function createResponseTracker(threadId, promptToken) {
     const baselineRecords = CGQADom.getAssistantMessageRecords();
     return {
       threadId,
+      promptToken,
       baselineCount: baselineRecords.length,
       knownSignatures: new Set(baselineRecords.map(getAssistantRecordSignature)),
       candidateSignature: "",
@@ -422,6 +471,7 @@
       generating.status = "completed";
       state.pendingResponse = null;
       await saveAndRenderThread(thread);
+      syncMainChatVisibility();
     }, RESPONSE_STABLE_DELAY_MS);
   }
 
@@ -483,6 +533,7 @@
 
     state.threads = state.threads.filter((thread) => thread.threadId !== threadId);
     await CGQAStorage.deleteThread(state.conversationId, threadId);
+    syncMainChatVisibility();
     closeSidebar();
     scheduleRestore();
   }
@@ -490,6 +541,7 @@
   async function clearConversation() {
     await CGQAStorage.clearConversation(state.conversationId);
     state.threads = [];
+    syncMainChatVisibility();
     closeSidebar();
     CGQADom.clearRenderedMarks();
     CGQASidebar.showToast("已清除当前会话的批注引用。");
@@ -504,34 +556,11 @@
       if (state.activeThreadId) {
         CGQADom.setActiveMark(state.activeThreadId);
       }
+      syncMainChatVisibility();
       setTimeout(() => {
         state.restoring = false;
       }, 0);
     }, 250);
-  }
-
-  function foldPluginPrompts() {
-    CGQADom.getAllTurns()
-      .filter((turn) => turn.getAttribute("data-turn") === "user" && !turn.dataset.cgqaFolded)
-      .forEach((turn) => {
-        const text = turn.textContent || "";
-        const match = text.match(/围绕 引用 (\d+) 的批注提问/);
-        if (!match) {
-          return;
-        }
-
-        const content = turn.querySelector("[data-testid='collapsible-user-message-content'], .whitespace-pre-wrap") || turn;
-        const details = document.createElement("details");
-        details.className = "cgqa-folded-prompt";
-        const summary = document.createElement("summary");
-        summary.textContent = `围绕 引用 ${match[1]} 的批注提问 - 已收纳到右侧小窗`;
-        const pre = document.createElement("pre");
-        pre.textContent = text;
-        details.append(summary, pre);
-        content.textContent = "";
-        content.append(details);
-        turn.dataset.cgqaFolded = "true";
-      });
   }
 
   function destroy() {
@@ -545,6 +574,9 @@
     CGQASidebar.hideSelectionMenu();
     if (sidebar) {
       sidebar.render(null);
+    }
+    if (CGQADom.syncHiddenMainTurns) {
+      CGQADom.syncHiddenMainTurns([]);
     }
   }
 

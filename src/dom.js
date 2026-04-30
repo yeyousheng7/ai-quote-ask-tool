@@ -2,6 +2,7 @@
   "use strict";
 
   const MARK_SELECTOR = ".cgqa-quote-mark";
+  const HIDDEN_TURN_CLASS = "cgqa-main-turn-hidden";
   const BAD_SELECTION_SELECTOR = [
     ".cgqa-root",
     ".cgqa-selection-menu",
@@ -51,6 +52,30 @@
       ? turn
       : turn.querySelector("[data-message-author-role]");
     return message && message.getAttribute("data-message-author-role") === "assistant" ? turn : null;
+  }
+
+  function getTurnRole(turn) {
+    if (!turn) {
+      return "";
+    }
+    const explicitRole = turn.getAttribute("data-turn");
+    if (explicitRole === "assistant" || explicitRole === "user") {
+      return explicitRole;
+    }
+    const message = turn.matches("[data-message-author-role]")
+      ? turn
+      : turn.querySelector("[data-message-author-role]");
+    return message ? message.getAttribute("data-message-author-role") || "" : "";
+  }
+
+  function getMessageNodeByRole(turn, role) {
+    if (!turn || !role) {
+      return null;
+    }
+    if (turn.matches(`[data-message-author-role='${role}']`)) {
+      return turn;
+    }
+    return turn.querySelector(`[data-message-author-role='${role}']`);
   }
 
   function getMessageNode(turn) {
@@ -416,7 +441,40 @@
   }
 
   function getAllTurns() {
-    return Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"));
+    const primary = Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"));
+    if (primary.length > 0) {
+      return primary;
+    }
+
+    const fallback = Array.from(document.querySelectorAll("[data-message-author-role='user'], [data-message-author-role='assistant']")).map((node) => {
+      return node.closest("section[data-turn], [data-testid^='conversation-turn-']") || node;
+    });
+    return Array.from(new Set(fallback));
+  }
+
+  function getTurnText(turn) {
+    const role = getTurnRole(turn);
+    const message = getMessageNodeByRole(turn, role) || turn;
+    if (role === "assistant") {
+      const markdown = getMarkdownNode(turn);
+      return markdown ? getReadableText(markdown).trim() : getReadableText(message).trim();
+    }
+    return getReadableText(message).trim();
+  }
+
+  function getAllTurnRecords() {
+    return getAllTurns().map((turn, index) => {
+      const role = getTurnRole(turn);
+      const message = getMessageNodeByRole(turn, role);
+      return {
+        index,
+        turn,
+        role,
+        turnId: getTurnId(turn),
+        messageId: message ? message.getAttribute("data-message-id") || "" : "",
+        text: getTurnText(turn)
+      };
+    }).filter((record) => record.role && record.turn);
   }
 
   function getAssistantTurns() {
@@ -447,6 +505,78 @@
         text: markdown ? getReadableText(markdown).trim() : ""
       };
     }).filter((record) => record.messageId || record.text);
+  }
+
+  function syncHiddenMainTurns(targets) {
+    const normalizedTargets = normalizeHiddenTargets(targets);
+    const records = getAllTurnRecords();
+    const turnsToHide = new Map();
+
+    records.forEach((record, index) => {
+      if (record.role !== "user" || !record.text) {
+        return;
+      }
+
+      const target = findHideTargetForText(record.text, normalizedTargets);
+      if (!target) {
+        return;
+      }
+
+      turnsToHide.set(record.turn, target);
+      const assistantRecord = findNextAssistantRecord(records, index);
+      if (assistantRecord) {
+        turnsToHide.set(assistantRecord.turn, target);
+      }
+    });
+
+    document.querySelectorAll(`.${HIDDEN_TURN_CLASS}`).forEach((turn) => {
+      if (!turnsToHide.has(turn)) {
+        unhideMainTurn(turn);
+      }
+    });
+
+    turnsToHide.forEach((target, turn) => hideMainTurn(turn, target));
+  }
+
+  function normalizeHiddenTargets(targets) {
+    const seen = new Set();
+    return (Array.isArray(targets) ? targets : []).filter((target) => {
+      const promptToken = target && target.promptToken;
+      if (!promptToken || seen.has(promptToken)) {
+        return false;
+      }
+      seen.add(promptToken);
+      return true;
+    });
+  }
+
+  function findHideTargetForText(text, targets) {
+    return targets.find((target) => text.includes(target.promptToken)) || null;
+  }
+
+  function findNextAssistantRecord(records, startIndex) {
+    for (let index = startIndex + 1; index < records.length; index += 1) {
+      const record = records[index];
+      if (record.role === "assistant") {
+        return record;
+      }
+      if (record.role === "user") {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  function hideMainTurn(turn, target) {
+    turn.classList.add(HIDDEN_TURN_CLASS);
+    turn.dataset.cgqaHiddenThreadId = target.threadId || "";
+    turn.dataset.cgqaHiddenPromptToken = target.promptToken || "";
+  }
+
+  function unhideMainTurn(turn) {
+    turn.classList.remove(HIDDEN_TURN_CLASS);
+    delete turn.dataset.cgqaHiddenThreadId;
+    delete turn.dataset.cgqaHiddenPromptToken;
   }
 
   function getLastAssistantText() {
@@ -693,9 +823,11 @@
     setActiveMark,
     updateMarkChip,
     getAllTurns,
+    getAllTurnRecords,
     getAssistantTurns,
     getAssistantMessageRecords,
     getLastAssistantText,
+    syncHiddenMainTurns,
     submitPrompt
   };
 })();

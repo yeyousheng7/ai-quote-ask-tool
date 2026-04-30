@@ -326,25 +326,6 @@
   background: #c8f2d9;
 }
 
-.cgqa-folded-prompt {
-  color: #536171;
-  background: #f7faf9;
-  border: 1px solid #dfe7e2;
-  border-radius: 12px;
-  padding: 8px 10px;
-  font-size: 13px;
-}
-
-.cgqa-folded-prompt summary {
-  cursor: pointer;
-  color: #1f513d;
-  font-weight: 620;
-}
-
-.cgqa-folded-prompt pre {
-  margin: 10px 0 0;
-  overflow: auto;
-  white-space: pre-wrap;
-  color: #52606d;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+.cgqa-main-turn-hidden {
+  display: none !important;
 }
