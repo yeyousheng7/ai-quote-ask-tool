@@ -569,15 +569,27 @@
   }
 
   function hideMainTurn(turn, target) {
-    turn.classList.add(HIDDEN_TURN_CLASS);
-    turn.dataset.cgqaHiddenThreadId = target.threadId || "";
-    turn.dataset.cgqaHiddenPromptToken = target.promptToken || "";
+    if (!turn.classList.contains(HIDDEN_TURN_CLASS)) {
+      turn.classList.add(HIDDEN_TURN_CLASS);
+    }
+    if (turn.dataset.cgqaHiddenThreadId !== (target.threadId || "")) {
+      turn.dataset.cgqaHiddenThreadId = target.threadId || "";
+    }
+    if (turn.dataset.cgqaHiddenPromptToken !== (target.promptToken || "")) {
+      turn.dataset.cgqaHiddenPromptToken = target.promptToken || "";
+    }
   }
 
   function unhideMainTurn(turn) {
-    turn.classList.remove(HIDDEN_TURN_CLASS);
-    delete turn.dataset.cgqaHiddenThreadId;
-    delete turn.dataset.cgqaHiddenPromptToken;
+    if (turn.classList.contains(HIDDEN_TURN_CLASS)) {
+      turn.classList.remove(HIDDEN_TURN_CLASS);
+    }
+    if (turn.dataset.cgqaHiddenThreadId !== undefined) {
+      delete turn.dataset.cgqaHiddenThreadId;
+    }
+    if (turn.dataset.cgqaHiddenPromptToken !== undefined) {
+      delete turn.dataset.cgqaHiddenPromptToken;
+    }
   }
 
   function getLastAssistantText() {

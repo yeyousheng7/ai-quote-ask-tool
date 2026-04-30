@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.2.4-visual-hide-composer";
+  const CONTENT_VERSION = "0.2.5-stabilize-flow";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -21,6 +21,7 @@
     observer: null,
     restoreTimer: 0,
     creatingThread: false,
+    loadingConversation: false,
     restoring: false,
     cleanupTasks: []
   };
@@ -50,14 +51,37 @@
     await loadThreads();
     bindEvents();
     scheduleRestore();
-    syncMainChatVisibility();
-    syncMainComposerVisibility();
+    syncPageDecorations();
   }
 
   async function loadThreads() {
     state.conversationId = CGQADom.getConversationId();
-    state.threads = await CGQAStorage.listThreads(state.conversationId);
+    const storedThreads = await CGQAStorage.listThreads(state.conversationId);
+    state.threads = storedThreads.map(normalizeThread).filter(Boolean);
     await normalizeDisplayIndexes();
+  }
+
+  function normalizeThread(thread) {
+    const anchor = thread && thread.anchor && typeof thread.anchor === "object" ? thread.anchor : {};
+    const quoteId = thread && (thread.quoteId || anchor.quoteId);
+    if (!thread || !thread.threadId || !quoteId) {
+      return null;
+    }
+
+    return {
+      ...thread,
+      quoteId,
+      quoteText: String(thread.quoteText || anchor.exactText || ""),
+      sourceConversationId: thread.sourceConversationId || state.conversationId,
+      anchor: {
+        ...anchor,
+        sourceConversationId: anchor.sourceConversationId || thread.sourceConversationId || state.conversationId,
+        threadId: anchor.threadId || thread.threadId,
+        quoteId: anchor.quoteId || thread.quoteId
+      },
+      messages: Array.isArray(thread.messages) ? thread.messages : [],
+      mainChatItems: getMainChatItems(thread)
+    };
   }
 
   async function normalizeDisplayIndexes() {
@@ -103,20 +127,44 @@
   }
 
   function handlePageMutation() {
-    if (state.restoring) {
+    if (state.restoring || state.loadingConversation) {
       return;
     }
 
     const nextConversationId = CGQADom.getConversationId();
     if (nextConversationId !== state.conversationId) {
-      loadThreads().then(scheduleRestore);
+      switchConversation().catch((error) => {
+        console.error("[CGQA] switch conversation failed", error);
+      });
       return;
     }
 
     scheduleRestore();
     capturePendingAssistantIfReady();
-    syncMainChatVisibility();
-    syncMainComposerVisibility();
+    syncPageDecorations();
+  }
+
+  async function switchConversation() {
+    state.loadingConversation = true;
+    resetTransientState();
+    closeSidebar();
+    CGQASidebar.hideSelectionMenu();
+    CGQADom.clearRenderedMarks();
+    syncMainChatVisibility([]);
+
+    try {
+      await loadThreads();
+      scheduleRestore();
+      syncPageDecorations();
+    } finally {
+      state.loadingConversation = false;
+    }
+  }
+
+  function resetTransientState() {
+    state.pendingSelection = null;
+    state.pendingResponse = null;
+    clearTimeout(capturePendingAssistantIfReady.timer);
   }
 
   function handleMouseUp(event) {
@@ -261,8 +309,7 @@
     CGQADom.setActiveMark(threadId);
     sidebar.render(thread);
     sidebar.focusInput();
-    syncMainChatVisibility();
-    syncMainComposerVisibility();
+    syncPageDecorations();
   }
 
   function handleQuoteMarkClick(event) {
@@ -316,7 +363,30 @@
   }
 
   async function saveAndRenderThread(thread) {
-    await CGQAStorage.saveThread(thread);
+    try {
+      const savedThread = await CGQAStorage.saveThread(thread);
+      replaceThread(savedThread);
+      renderSavedThread(savedThread);
+      return savedThread;
+    } catch (error) {
+      console.error("[CGQA] save thread failed", error);
+      CGQASidebar.showToast("本地保存失败，本次批注仍会保留在当前页面。");
+      replaceThread(thread);
+      renderSavedThread(thread);
+      return thread;
+    }
+  }
+
+  function replaceThread(nextThread) {
+    const index = state.threads.findIndex((thread) => thread.threadId === nextThread.threadId);
+    if (index >= 0) {
+      state.threads[index] = nextThread;
+      return;
+    }
+    state.threads.push(nextThread);
+  }
+
+  function renderSavedThread(thread) {
     CGQADom.updateMarkChip(thread);
     if (thread.threadId === state.activeThreadId) {
       sidebar.render(thread);
@@ -348,6 +418,10 @@
     const question = (rawQuestion || "").trim();
     const thread = getThread(state.activeThreadId);
     if (!thread || !question) {
+      return;
+    }
+    if (state.pendingResponse || hasGeneratingMessage(thread)) {
+      CGQASidebar.showToast("上一条追问仍在生成中，请稍后再发。");
       return;
     }
 
@@ -385,6 +459,10 @@
     }
   }
 
+  function hasGeneratingMessage(thread) {
+    return (thread.messages || []).some((message) => message.role === "assistant" && message.status === "generating");
+  }
+
   function createMainChatItem() {
     return {
       promptToken: `${PROMPT_TOKEN_PREFIX}:${uid("prompt")}`,
@@ -393,7 +471,10 @@
   }
 
   function getMainChatItems(thread) {
-    return Array.isArray(thread && thread.mainChatItems) ? thread.mainChatItems : [];
+    if (!Array.isArray(thread && thread.mainChatItems)) {
+      return [];
+    }
+    return thread.mainChatItems.filter((item) => item && typeof item.promptToken === "string" && item.promptToken);
   }
 
   function getMainChatHideTargets() {
@@ -411,11 +492,11 @@
     return targets;
   }
 
-  function syncMainChatVisibility() {
+  function syncMainChatVisibility(targets = getMainChatHideTargets()) {
     if (!CGQADom.syncHiddenMainTurns) {
       return;
     }
-    CGQADom.syncHiddenMainTurns(getMainChatHideTargets());
+    CGQADom.syncHiddenMainTurns(targets);
   }
 
   function syncMainComposerVisibility() {
@@ -423,6 +504,11 @@
       return;
     }
     CGQADom.setMainComposerHidden(Boolean(state.activeThreadId));
+  }
+
+  function syncPageDecorations() {
+    syncMainChatVisibility();
+    syncMainComposerVisibility();
   }
 
   function createResponseTracker(threadId, promptToken) {
@@ -445,6 +531,7 @@
 
     const thread = getThread(state.pendingResponse.threadId);
     if (!thread) {
+      state.pendingResponse = null;
       return;
     }
 
@@ -459,7 +546,9 @@
       generating.content = generating.content === "生成中..." ? "回答等待超时，请在主聊天中查看结果。" : generating.content;
       generating.status = "failed";
       state.pendingResponse = null;
-      saveAndRenderThread(thread);
+      saveAndRenderThread(thread).then(syncPageDecorations).catch((error) => {
+        console.error("[CGQA] save timeout state failed", error);
+      });
       return;
     }
 
@@ -543,6 +632,10 @@
     }
 
     state.threads = state.threads.filter((thread) => thread.threadId !== threadId);
+    if (state.pendingResponse && state.pendingResponse.threadId === threadId) {
+      state.pendingResponse = null;
+      clearTimeout(capturePendingAssistantIfReady.timer);
+    }
     await CGQAStorage.deleteThread(state.conversationId, threadId);
     syncMainChatVisibility();
     closeSidebar();
@@ -552,6 +645,7 @@
   async function clearConversation() {
     await CGQAStorage.clearConversation(state.conversationId);
     state.threads = [];
+    resetTransientState();
     syncMainChatVisibility();
     closeSidebar();
     CGQADom.clearRenderedMarks();
@@ -563,11 +657,11 @@
     state.restoreTimer = setTimeout(() => {
       state.restoring = true;
       CGQADom.clearRenderedMarks();
-      state.threads.forEach(renderThreadMark);
+      state.threads.forEach((thread) => renderThreadMark(thread));
       if (state.activeThreadId) {
         CGQADom.setActiveMark(state.activeThreadId);
       }
-      syncMainChatVisibility();
+      syncPageDecorations();
       setTimeout(() => {
         state.restoring = false;
       }, 0);
