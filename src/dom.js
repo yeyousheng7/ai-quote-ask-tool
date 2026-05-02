@@ -471,7 +471,7 @@
 
   function getChipText(thread) {
     const count = (thread.messages || []).filter((message) => message.role === "user").length;
-    return count > 0 ? `引用 ${thread.displayIndex} · ${count}` : `引用 ${thread.displayIndex}`;
+    return count > 0 ? `提问 ${thread.displayIndex} · ${count}` : `提问 ${thread.displayIndex}`;
   }
 
   function updateMarkChip(thread) {

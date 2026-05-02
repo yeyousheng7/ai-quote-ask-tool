@@ -423,7 +423,7 @@
   }
 
   function createSelectionButton(onAnnotate) {
-    const button = createElement("button", ATTACHED_SELECTION_BUTTON_CLASS, "批注提问");
+    const button = createElement("button", ATTACHED_SELECTION_BUTTON_CLASS, "提问");
     button.type = "button";
     const submit = (event) => {
       event.preventDefault();
