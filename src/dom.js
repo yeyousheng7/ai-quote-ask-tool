@@ -373,10 +373,35 @@
   }
 
   function getRangeOffsets(root, range) {
-    return {
+    return trimTextOffsets(root, {
       startOffset: getTextOffset(root, range.startContainer, range.startOffset),
       endOffset: getTextOffset(root, range.endContainer, range.endOffset)
-    };
+    });
+  }
+
+  function trimTextOffsets(root, offsets) {
+    let startOffset = offsets.startOffset;
+    let endOffset = offsets.endOffset;
+    if (startOffset < 0 || endOffset < 0 || endOffset <= startOffset) {
+      return { startOffset, endOffset };
+    }
+
+    const text = getLinearText(root);
+    startOffset = clampNumber(startOffset, 0, text.length);
+    endOffset = clampNumber(endOffset, 0, text.length);
+
+    while (startOffset < endOffset && isBoundaryWhitespace(text[startOffset])) {
+      startOffset += 1;
+    }
+    while (endOffset > startOffset && isBoundaryWhitespace(text[endOffset - 1])) {
+      endOffset -= 1;
+    }
+
+    return { startOffset, endOffset };
+  }
+
+  function isBoundaryWhitespace(character) {
+    return /\s/.test(character || "");
   }
 
   function makeAnchorText(root, startOffset, endOffset) {
@@ -549,6 +574,13 @@
 
   function getTextSlicesByOffsets(root, startOffset, endOffset) {
     const slices = [];
+    const trimmed = trimTextOffsets(root, { startOffset, endOffset });
+    startOffset = trimmed.startOffset;
+    endOffset = trimmed.endOffset;
+    if (startOffset < 0 || endOffset <= startOffset) {
+      return slices;
+    }
+
     const walker = createTextWalker(root);
     let currentOffset = 0;
     let node = walker.nextNode();
@@ -558,7 +590,7 @@
       if (nextOffset > startOffset && currentOffset < endOffset) {
         const start = Math.max(0, startOffset - currentOffset);
         const end = Math.min(node.nodeValue.length, endOffset - currentOffset);
-        if (end > start) {
+        if (end > start && !isWhitespaceOnly(node.nodeValue.slice(start, end))) {
           slices.push({ node, start, end });
         }
       }
@@ -570,6 +602,10 @@
     }
 
     return slices;
+  }
+
+  function isWhitespaceOnly(text) {
+    return !text || /^\s+$/.test(text);
   }
 
   function wrapTextSlice(slice, thread, includeChip) {
