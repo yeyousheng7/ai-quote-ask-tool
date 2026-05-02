@@ -6,8 +6,11 @@
   const PANEL_DEFAULT_RIGHT = 28;
   const PANEL_DEFAULT_TOP = 140;
   const INPUT_MAX_HEIGHT = 96;
+  const OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS = 900;
+  const ATTACHED_SELECTION_BUTTON_CLASS = "cgqa-selection-attached-button";
 
   let panelPosition = readPanelPosition();
+  let selectionAttachTimer = 0;
 
   function createElement(tag, className, text) {
     const element = document.createElement(tag);
@@ -389,20 +392,90 @@
 
   function showSelectionMenu(rect, onAnnotate) {
     hideSelectionMenu();
-    const menu = createElement("div", "cgqa-selection-menu");
-    const button = createElement("button", "", "批注");
+    const button = createSelectionButton(onAnnotate);
+    attachSelectionButtonToOfficialToolbar(button, rect);
+  }
+
+  function createSelectionButton(onAnnotate) {
+    const button = createElement("button", ATTACHED_SELECTION_BUTTON_CLASS, "批注提问");
     button.type = "button";
     const submit = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (menu.dataset.submitted === "true") {
+      if (button.dataset.submitted === "true") {
         return;
       }
-      menu.dataset.submitted = "true";
+      button.dataset.submitted = "true";
       onAnnotate();
     };
     button.addEventListener("pointerdown", submit);
     button.addEventListener("click", submit);
+    return button;
+  }
+
+  function attachSelectionButtonToOfficialToolbar(button, rect) {
+    const startedAt = Date.now();
+    const tryAttach = () => {
+      const target = findOfficialSelectionButtonGroup();
+      if (target) {
+        if (button.parentElement !== target) {
+          target.append(button);
+        }
+      }
+
+      if (Date.now() - startedAt >= OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS) {
+        if (!button.isConnected && hasActiveTextSelection()) {
+          showStandaloneSelectionMenu(rect, button);
+        }
+        return;
+      }
+
+      selectionAttachTimer = window.setTimeout(tryAttach, 50);
+    };
+
+    tryAttach();
+  }
+
+  function findOfficialSelectionButtonGroup() {
+    const buttons = Array.from(document.querySelectorAll("button")).filter((button) => {
+      if (
+        button.closest(".cgqa-root, .cgqa-selection-menu")
+        || button.classList.contains(ATTACHED_SELECTION_BUTTON_CLASS)
+        || button.classList.contains("cgqa-quote-chip")
+      ) {
+        return false;
+      }
+      const text = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.trim();
+      return /询问\s*ChatGPT|Ask\s*ChatGPT/i.test(text)
+        || (isInsideOfficialSelectionToolbar(button) && /引用|Quote/i.test(text));
+    });
+    const officialButton = buttons.find(isVisibleElement);
+    if (!officialButton || !officialButton.parentElement) {
+      return null;
+    }
+    return officialButton.parentElement;
+  }
+
+  function isInsideOfficialSelectionToolbar(button) {
+    return Boolean(
+      button.closest(".fixed.select-none")
+      || button.parentElement && /\bshadow-long\b/.test(button.parentElement.className || "")
+    );
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function hasActiveTextSelection() {
+    const selection = window.getSelection();
+    return Boolean(selection && !selection.isCollapsed && selection.toString().trim());
+  }
+
+  function showStandaloneSelectionMenu(rect, button) {
+    hideSelectionMenu();
+    const menu = createElement("div", "cgqa-selection-menu");
     menu.append(button);
     appendOverlayRoot(menu);
 
@@ -413,6 +486,9 @@
   }
 
   function hideSelectionMenu() {
+    clearTimeout(selectionAttachTimer);
+    selectionAttachTimer = 0;
+    document.querySelectorAll(`.${ATTACHED_SELECTION_BUTTON_CLASS}`).forEach((node) => node.remove());
     document.querySelectorAll(".cgqa-selection-menu").forEach((node) => node.remove());
   }
 

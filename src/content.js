@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.2.9-send-state-controls";
+  const CONTENT_VERSION = "0.3.0-attach-selection-action";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -189,7 +189,7 @@
   }
 
   function isPluginUi(target) {
-    return Boolean(target && target.closest && target.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-toast"));
+    return Boolean(target && target.closest && target.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-selection-attached-button, .cgqa-toast"));
   }
 
   function createThreadFromSelection() {

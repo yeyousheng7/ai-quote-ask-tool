@@ -70,6 +70,7 @@
 .cgqa-send-button,
 .cgqa-text-button,
 .cgqa-selection-menu button,
+.cgqa-selection-attached-button,
 .cgqa-quote-chip {
   border: 0;
   font: inherit;
@@ -297,6 +298,45 @@
 
 .cgqa-selection-menu button:hover {
   background: rgba(255, 255, 255, 0.12);
+}
+
+.cgqa-selection-attached-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-left: 6px;
+  color: #039855;
+  background: #effdf5;
+  border: 1px solid #b7ebce;
+  border-radius: 12px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 20px;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.cgqa-selection-attached-button:hover {
+  background: #dcfae6;
+  border-color: #86efac;
+}
+
+.cgqa-selection-attached-button::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg) translateY(-1px);
+  border-radius: 2px;
+}
+
+.cgqa-selection-menu .cgqa-selection-attached-button {
+  margin-left: 0;
 }
 
 .cgqa-thread-choice-menu {
