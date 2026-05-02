@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.4.2-submit-without-duplicate-retry";
+  const CONTENT_VERSION = "0.4.3-capture-reused-assistant-turn";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -518,11 +518,16 @@
 
   function createResponseTracker(threadId, promptToken) {
     const baselineRecords = CGQADom.getAssistantMessageRecords();
+    const baselineTextBySignature = {};
+    baselineRecords.forEach((record) => {
+      baselineTextBySignature[getAssistantRecordSignature(record)] = record.text || "";
+    });
     return {
       threadId,
       promptToken,
       baselineCount: baselineRecords.length,
       knownSignatures: new Set(baselineRecords.map(getAssistantRecordSignature)),
+      baselineTextBySignature,
       candidateSignature: "",
       startedAt: Date.now(),
       lastText: ""
@@ -603,6 +608,18 @@
       if (appendedRecord && appendedRecord.text && isUsableAssistantAnswer(appendedRecord.text, thread)) {
         return appendedRecord;
       }
+    }
+
+    const changedKnownRecord = [...records].reverse().find((record) => {
+      const signature = getAssistantRecordSignature(record);
+      const baselineText = tracker.baselineTextBySignature && tracker.baselineTextBySignature[signature] || "";
+      return tracker.knownSignatures.has(signature)
+        && record.text
+        && record.text !== baselineText
+        && isUsableAssistantAnswer(record.text, thread);
+    });
+    if (changedKnownRecord) {
+      return changedKnownRecord;
     }
 
     return null;

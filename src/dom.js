@@ -744,15 +744,10 @@
   }
 
   function getAllTurns() {
-    const primary = Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"));
-    if (primary.length > 0) {
-      return primary;
-    }
-
-    const fallback = Array.from(document.querySelectorAll("[data-message-author-role='user'], [data-message-author-role='assistant']")).map((node) => {
-      return node.closest("section[data-turn], [data-testid^='conversation-turn-']") || node;
-    });
-    return Array.from(new Set(fallback));
+    const sectionTurns = Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"));
+    const messageTurns = Array.from(document.querySelectorAll("[data-message-author-role='user'], [data-message-author-role='assistant']"))
+      .map(getTurnContainerForMessageNode);
+    return sortElementsByDocumentOrder(uniqueElements([...sectionTurns, ...messageTurns]));
   }
 
   function getTurnText(turn) {
@@ -781,19 +776,32 @@
   }
 
   function getAssistantTurns() {
-    const turns = Array.from(document.querySelectorAll("section[data-turn='assistant']"));
-    if (turns.length > 0) {
-      return turns;
-    }
-    return Array.from(document.querySelectorAll("[data-message-author-role='assistant']"));
+    const sectionTurns = Array.from(document.querySelectorAll("section[data-turn='assistant']"));
+    const messageTurns = Array.from(document.querySelectorAll("[data-message-author-role='assistant']"))
+      .map(getTurnContainerForMessageNode);
+    return sortElementsByDocumentOrder(uniqueElements([...sectionTurns, ...messageTurns]));
   }
 
   function getUserTurnCount() {
-    const turns = document.querySelectorAll("section[data-turn='user']");
-    if (turns.length > 0) {
-      return turns.length;
-    }
-    return document.querySelectorAll("[data-message-author-role='user']").length;
+    return getAllTurns().filter((turn) => getTurnRole(turn) === "user").length;
+  }
+
+  function getTurnContainerForMessageNode(node) {
+    return node.closest("section[data-turn], section[data-testid^='conversation-turn-'], [data-testid^='conversation-turn-']")
+      || node;
+  }
+
+  function uniqueElements(elements) {
+    return Array.from(new Set(elements.filter(Boolean)));
+  }
+
+  function sortElementsByDocumentOrder(elements) {
+    return elements.sort((a, b) => {
+      if (a === b) {
+        return 0;
+      }
+      return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_PRECEDING ? 1 : -1;
+    });
   }
 
   function getAssistantMessageRecords() {
