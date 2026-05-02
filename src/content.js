@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.3.5-trim-selection-markers";
+  const CONTENT_VERSION = "0.4.0-runtime-cleanup";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -57,41 +57,36 @@
     state.conversationId = CGQADom.getConversationId();
     const storedThreads = await CGQAStorage.listThreads(state.conversationId);
     state.threads = storedThreads.map(normalizeThread).filter(Boolean);
-    await normalizeDisplayIndexes();
   }
 
   function normalizeThread(thread) {
-    const anchor = thread && thread.anchor && typeof thread.anchor === "object" ? thread.anchor : {};
-    const quoteId = thread && (thread.quoteId || anchor.quoteId);
-    if (!thread || !thread.threadId || !quoteId) {
+    if (!isCurrentThreadShape(thread)) {
       return null;
     }
 
     return {
       ...thread,
-      quoteId,
-      quoteText: String(thread.quoteText || anchor.exactText || ""),
-      sourceConversationId: thread.sourceConversationId || state.conversationId,
-      anchor: {
-        ...anchor,
-        sourceConversationId: anchor.sourceConversationId || thread.sourceConversationId || state.conversationId,
-        threadId: anchor.threadId || thread.threadId,
-        quoteId: anchor.quoteId || thread.quoteId
-      },
+      quoteText: String(thread.quoteText || ""),
       messages: Array.isArray(thread.messages) ? thread.messages : [],
       mainChatItems: getMainChatItems(thread)
     };
   }
 
-  async function normalizeDisplayIndexes() {
-    const writes = [];
-    state.threads.forEach((thread, index) => {
-      if (!thread.displayIndex) {
-        thread.displayIndex = index + 1;
-        writes.push(CGQAStorage.saveThread(thread));
-      }
-    });
-    await Promise.allSettled(writes);
+  function isCurrentThreadShape(thread) {
+    return Boolean(
+      thread
+      && thread.threadId
+      && thread.quoteId
+      && thread.quoteText !== undefined
+      && thread.sourceConversationId
+      && Number.isInteger(thread.displayIndex)
+      && thread.anchor
+      && thread.anchor.threadId === thread.threadId
+      && thread.anchor.quoteId === thread.quoteId
+      && Number.isInteger(thread.anchor.startOffset)
+      && Number.isInteger(thread.anchor.endOffset)
+      && typeof thread.anchor.exactText === "string"
+    );
   }
 
   function bindEvents() {

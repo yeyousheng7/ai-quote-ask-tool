@@ -463,10 +463,6 @@
   border-radius: 2px;
 }
 
-.cgqa-selection-menu .cgqa-selection-attached-button {
-  margin-left: 0;
-}
-
 .cgqa-thread-choice-menu {
   display: flex;
   max-width: 300px;

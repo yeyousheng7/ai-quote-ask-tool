@@ -413,6 +413,21 @@
     };
   }
 
+  function createAnchorFromRange(markdown, range) {
+    const offsets = getRangeOffsets(markdown, range);
+    if (!isValidTextSpan(offsets)) {
+      return null;
+    }
+    return {
+      ...offsets,
+      ...makeAnchorText(markdown, offsets.startOffset, offsets.endOffset)
+    };
+  }
+
+  function isValidTextSpan(offsets) {
+    return Boolean(offsets && offsets.startOffset >= 0 && offsets.endOffset > offsets.startOffset);
+  }
+
   function validateSelection(selection) {
     if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
       return { ok: false, reason: "请先选择一段 ChatGPT 回复正文。" };
@@ -440,8 +455,8 @@
       return { ok: false, reason: "选择内容为空。" };
     }
 
-    const offsets = getRangeOffsets(markdown, range);
-    if (offsets.startOffset < 0 || offsets.endOffset < 0 || offsets.endOffset <= offsets.startOffset) {
+    const anchor = createAnchorFromRange(markdown, range);
+    if (!anchor) {
       return { ok: false, reason: "当前选区结构过于复杂，无法稳定定位。" };
     }
 
@@ -454,8 +469,7 @@
       markdown,
       selectedText,
       complex,
-      ...offsets,
-      ...makeAnchorText(markdown, offsets.startOffset, offsets.endOffset)
+      ...anchor
     };
   }
 
@@ -643,19 +657,7 @@
       return false;
     }
 
-    const anchor = thread.anchor || {};
-    let range = null;
-    if (Number.isInteger(anchor.startOffset) && Number.isInteger(anchor.endOffset)) {
-      const exact = getLinearText(markdown).slice(anchor.startOffset, anchor.endOffset);
-      if (exact === anchor.exactText) {
-        range = createRangeFromOffsets(markdown, anchor.startOffset, anchor.endOffset);
-      }
-    }
-
-    if (!range) {
-      range = findRangeByContext(markdown, anchor);
-    }
-
+    const range = resolveAnchorRange(markdown, thread.anchor || {});
     if (!range) {
       return false;
     }
@@ -665,6 +667,32 @@
     }
 
     return wrapRange(markdown, range, thread);
+  }
+
+  function resolveAnchorRange(markdown, anchor) {
+    const offsetRange = findRangeByOffsets(markdown, anchor);
+    return offsetRange || findRangeByContext(markdown, anchor);
+  }
+
+  function findRangeByOffsets(markdown, anchor) {
+    if (!Number.isInteger(anchor.startOffset) || !Number.isInteger(anchor.endOffset)) {
+      return null;
+    }
+
+    const trimmed = trimTextOffsets(markdown, {
+      startOffset: anchor.startOffset,
+      endOffset: anchor.endOffset
+    });
+    if (!isValidTextSpan(trimmed)) {
+      return null;
+    }
+
+    const exact = getLinearText(markdown).slice(trimmed.startOffset, trimmed.endOffset);
+    if (exact !== anchor.exactText) {
+      return null;
+    }
+
+    return createRangeFromOffsets(markdown, trimmed.startOffset, trimmed.endOffset);
   }
 
   function findTurnForThread(thread) {
@@ -868,13 +896,6 @@
     if (turn.dataset.cgqaHiddenPromptToken !== undefined) {
       delete turn.dataset.cgqaHiddenPromptToken;
     }
-  }
-
-  function getLastAssistantText() {
-    const turns = getAssistantTurns();
-    const turn = turns[turns.length - 1];
-    const markdown = getMarkdownNode(turn);
-    return markdown ? getReadableText(markdown).trim() : "";
   }
 
   function getPromptEditor() {
@@ -1235,7 +1256,6 @@
     getAllTurnRecords,
     getAssistantTurns,
     getAssistantMessageRecords,
-    getLastAssistantText,
     syncHiddenMainTurns,
     setMainComposerHidden,
     setNativeGenerationControlsHidden,

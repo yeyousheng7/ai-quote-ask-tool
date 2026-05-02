@@ -13,12 +13,12 @@ Chrome/Edge Manifest V3 browser extension for lightweight quote annotation threa
 ## MVP Behavior
 
 - Select text inside a ChatGPT assistant reply.
-- Click the floating `批注` button.
-- The selected reply text receives a lightweight `引用 N` marker.
+- Click the `提问` button attached to ChatGPT's native selection toolbar.
+- The selected reply text receives a lightweight `提问 N` marker.
 - A draggable floating annotation panel opens for that quote.
 - The ChatGPT main composer is visually hidden while a quote panel is open, so follow-up questions go through the panel while the underlying composer remains mounted for scripted submission.
 - Questions typed in the panel are saved in the quote thread and sent through the ChatGPT main composer with the quote as hidden context.
-- Plugin-generated main-chat prompts and their replies are hidden while the quote thread exists, then restored when the quote is deleted or the conversation annotations are cleared.
+- Plugin-generated main-chat prompts and their replies are hidden while the quote thread exists, then restored when the quote is deleted.
 - Threads are stored locally with `chrome.storage.local`, grouped by conversation id.
 
 ## Internal Flow
@@ -27,7 +27,7 @@ The extension is split into three runtime responsibilities:
 
 - `src/content.js` is the orchestration layer. It owns lifecycle, event binding, thread state, and the quote flow: validate selection -> build thread -> register thread -> open panel -> persist thread -> render marker.
 - `src/dom.js` is the ChatGPT page adapter. It owns selectors, selection offsets, quote marker rendering/restoration, prompt filling, send button lookup, and assistant response capture.
-- `src/sidebar.js` is the panel renderer. It rebuilds the overlay panel on open so old hidden nodes or stale injected scripts cannot keep the panel invisible.
+- `src/sidebar.js` is the panel and selection-action renderer. It rebuilds the overlay panel on open and attaches the `提问` action to ChatGPT's native selection toolbar.
 
 When changing behavior, keep the order above intact. Opening the panel should stay independent from storage and marker rendering; those failures should degrade with a toast instead of blocking the visible annotation thread.
 

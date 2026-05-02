@@ -77,7 +77,7 @@
     function renderHelp() {
       root = createPanel(callbacks, {
         displayIndex: "",
-        quoteText: "在 ChatGPT 的回复正文里划选文字，然后点击浮动的“批注”按钮。创建后，同一引用的追问会保存在这里。",
+        quoteText: "在 ChatGPT 的回复正文里划选文字，然后点击工具条里的“提问”按钮。创建后，同一段内容的追问会保存在这里。",
         messages: [],
         help: true
       });
@@ -416,10 +416,10 @@
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  function showSelectionMenu(rect, onAnnotate) {
+  function showSelectionMenu(_rect, onAnnotate) {
     hideSelectionMenu();
     const button = createSelectionButton(onAnnotate);
-    attachSelectionButtonToOfficialToolbar(button, rect);
+    attachSelectionButtonToOfficialToolbar(button);
   }
 
   function createSelectionButton(onAnnotate) {
@@ -439,7 +439,7 @@
     return button;
   }
 
-  function attachSelectionButtonToOfficialToolbar(button, rect) {
+  function attachSelectionButtonToOfficialToolbar(button) {
     const startedAt = Date.now();
     const tryAttach = () => {
       const target = findOfficialSelectionButtonGroup();
@@ -451,7 +451,7 @@
 
       if (Date.now() - startedAt >= OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS) {
         if (!button.isConnected && hasActiveTextSelection()) {
-          showStandaloneSelectionMenu(rect, button);
+          showToast("未找到 ChatGPT 选择工具条，请重新选择正文内容。");
         }
         return;
       }
@@ -497,18 +497,6 @@
   function hasActiveTextSelection() {
     const selection = window.getSelection();
     return Boolean(selection && !selection.isCollapsed && selection.toString().trim());
-  }
-
-  function showStandaloneSelectionMenu(rect, button) {
-    hideSelectionMenu();
-    const menu = createElement("div", "cgqa-selection-menu");
-    menu.append(button);
-    appendOverlayRoot(menu);
-
-    const top = Math.max(8, window.scrollY + rect.top - menu.offsetHeight - 10);
-    const left = Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - menu.offsetWidth - 12);
-    menu.style.top = `${top}px`;
-    menu.style.left = `${Math.max(8, left)}px`;
   }
 
   function hideSelectionMenu() {

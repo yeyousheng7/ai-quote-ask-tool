@@ -23,12 +23,6 @@
     });
   }
 
-  function removeChrome(key) {
-    return new Promise((resolve) => {
-      chrome.storage.local.remove([key], resolve);
-    });
-  }
-
   async function readConversation(conversationId) {
     const key = getStorageKey(conversationId);
     if (hasChromeStorage()) {
@@ -86,20 +80,9 @@
     return threads;
   }
 
-  async function clearConversation(conversationId) {
-    const key = getStorageKey(conversationId);
-    if (hasChromeStorage()) {
-      await removeChrome(key);
-      return;
-    }
-
-    localStorage.removeItem(key);
-  }
-
   globalThis.CGQAStorage = {
     listThreads,
     saveThread,
-    deleteThread,
-    clearConversation
+    deleteThread
   };
 })();
