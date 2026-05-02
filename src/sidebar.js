@@ -133,8 +133,8 @@
 
     const header = createElement("header", "cgqa-panel-header");
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
-    const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注引用" : `引用 ${thread.displayIndex}`);
-    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该引用继续提问");
+    const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注提问" : `提问 ${thread.displayIndex}`);
+    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该提问继续追问");
     const close = createElement("button", "cgqa-icon-button", "×");
     close.type = "button";
     close.title = "关闭";
@@ -147,9 +147,9 @@
     quote.hidden = Boolean(thread.help);
     const messages = createElement("div", "cgqa-messages");
     if (thread.help) {
-      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注引用。"));
+      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注提问。"));
     } else if (!thread.messages || thread.messages.length === 0) {
-      messages.append(createElement("div", "cgqa-empty", "还没有围绕这个引用的追问。"));
+      messages.append(createElement("div", "cgqa-empty", "还没有围绕这个提问的追问。"));
     } else {
       thread.messages.forEach((message) => messages.append(renderMessage(message)));
     }
@@ -157,7 +157,7 @@
     const footer = createElement("footer", "cgqa-panel-footer");
     const inputRow = createElement("div", "cgqa-input-row");
     const input = createElement("textarea", "cgqa-input");
-    input.placeholder = "继续追问这个引用...";
+    input.placeholder = "继续追问这个提问...";
     input.rows = 1;
     input.disabled = inputDisabled;
     const send = createElement("button", "cgqa-send-button", "↑");
@@ -187,7 +187,7 @@
     inputRow.append(input, send);
 
     const actions = createElement("div", "cgqa-panel-actions");
-    const deleteThread = createElement("button", "cgqa-text-button", "删除引用");
+    const deleteThread = createElement("button", "cgqa-text-button", "删除提问");
     deleteThread.type = "button";
     deleteThread.addEventListener("click", () => callbacks.onDeleteThread());
     actions.append(deleteThread);
@@ -510,7 +510,7 @@
     hideSelectionMenu();
     const menu = createElement("div", "cgqa-selection-menu cgqa-thread-choice-menu");
     threads.forEach((thread) => {
-      const button = createElement("button", "", `引用 ${thread.displayIndex}: ${(thread.quoteText || "").slice(0, 28)}`);
+      const button = createElement("button", "", `提问 ${thread.displayIndex}: ${(thread.quoteText || "").slice(0, 28)}`);
       button.type = "button";
       button.addEventListener("click", (event) => {
         event.preventDefault();

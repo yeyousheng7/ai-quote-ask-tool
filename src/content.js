@@ -389,7 +389,7 @@
 
   function buildPrompt(thread, question, promptToken) {
     return [
-      `围绕 引用 ${thread.displayIndex} 的批注提问`,
+      `围绕 提问 ${thread.displayIndex} 的批注提问`,
       "",
       "你正在回答用户围绕某段引用的追问。请只回答用户问题，不要复述这段系统说明。",
       "请不要在回答中提及或输出追踪标记。",

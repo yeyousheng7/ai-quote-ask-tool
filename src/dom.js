@@ -438,7 +438,7 @@
     const endTurn = getAssistantTurn(range.endContainer);
 
     if (!startTurn || !endTurn || startTurn !== endTurn) {
-      return { ok: false, reason: "暂不支持跨回复引用，请重新选择同一条回复中的内容。" };
+      return { ok: false, reason: "暂不支持跨回复提问，请重新选择同一条回复中的内容。" };
     }
 
     const markdown = getMarkdownNode(startTurn);
