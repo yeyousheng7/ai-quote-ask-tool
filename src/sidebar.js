@@ -23,6 +23,40 @@
     return element;
   }
 
+  function createSvgIcon(name, className = "cgqa-svg-icon") {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", className);
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width", "18");
+    svg.setAttribute("height", "18");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+
+    getIconPaths(name).forEach((pathData) => {
+      const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", pathData);
+      svg.append(path);
+    });
+
+    return svg;
+  }
+
+  function getIconPaths(name) {
+    const icons = {
+      arrowUp: ["M12 19V5", "M5 12l7-7 7 7"],
+      sparkles: [
+        "M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z",
+        "M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z",
+        "M5 4l.7 1.8L7.5 6.5l-1.8.7L5 9l-.7-1.8-1.8-.7 1.8-.7L5 4z"
+      ]
+    };
+    return icons[name] || [];
+  }
+
   function appendOverlayRoot(node) {
     (document.body || document.documentElement).appendChild(node);
   }
@@ -50,9 +84,9 @@
       "pointer-events: auto !important",
       "color: #1f2933 !important",
       "background: rgba(255,255,255,0.97) !important",
-      "border: 1px solid rgba(229,231,235,0.95) !important",
-      "border-radius: 22px !important",
-      "box-shadow: 0 20px 54px rgba(15,23,42,0.14), 0 4px 14px rgba(15,23,42,0.08) !important",
+      "border: 1px solid rgba(218,226,223,0.96) !important",
+      "border-radius: 24px !important",
+      "box-shadow: 0 26px 70px rgba(15,23,42,0.13), 0 12px 30px rgba(15,23,42,0.08), 0 2px 8px rgba(15,23,42,0.05) !important",
       "font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif !important"
     ].join(";");
   }
@@ -134,7 +168,7 @@
     const header = createElement("header", "cgqa-panel-header");
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
     const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注提问" : `提问 ${thread.displayIndex}`);
-    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该提问继续追问");
+    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该内容继续追问");
     const close = createElement("button", "cgqa-icon-button", "×");
     close.type = "button";
     close.title = "关闭";
@@ -149,7 +183,7 @@
     if (thread.help) {
       messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注提问。"));
     } else if (!thread.messages || thread.messages.length === 0) {
-      messages.append(createElement("div", "cgqa-empty", "还没有围绕这个提问的追问。"));
+      messages.append(createElement("div", "cgqa-empty", "还没有围绕这段内容的提问。"));
     } else {
       thread.messages.forEach((message) => messages.append(renderMessage(message)));
     }
@@ -157,13 +191,14 @@
     const footer = createElement("footer", "cgqa-panel-footer");
     const inputRow = createElement("div", "cgqa-input-row");
     const input = createElement("textarea", "cgqa-input");
-    input.placeholder = "继续追问这个提问...";
+    input.placeholder = "继续追问...";
     input.rows = 1;
     input.disabled = inputDisabled;
-    const send = createElement("button", "cgqa-send-button", "↑");
+    const send = createElement("button", "cgqa-send-button");
     send.type = "button";
     send.title = "发送";
     send.disabled = true;
+    send.append(createSvgIcon("arrowUp", "cgqa-svg-icon cgqa-send-icon"));
     const submitQuestion = () => {
       if (!canSubmitInput(input, inputDisabled)) {
         updateSendState(input, send, inputDisabled);
@@ -423,8 +458,10 @@
   }
 
   function createSelectionButton(onAnnotate) {
-    const button = createElement("button", ATTACHED_SELECTION_BUTTON_CLASS, "提问");
+    const button = createElement("button", ATTACHED_SELECTION_BUTTON_CLASS);
     button.type = "button";
+    const label = createElement("span", "cgqa-selection-label", "提问");
+    button.append(createSvgIcon("sparkles", "cgqa-svg-icon cgqa-selection-icon"), label);
     const submit = (event) => {
       event.preventDefault();
       event.stopPropagation();

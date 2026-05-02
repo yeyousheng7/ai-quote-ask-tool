@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.4.0-runtime-cleanup";
+  const CONTENT_VERSION = "0.4.1-polished-question-ui";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
