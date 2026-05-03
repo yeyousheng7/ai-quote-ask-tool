@@ -509,12 +509,19 @@
     return range;
   }
 
-  function createMarkElement(thread, blockMode, includeChip = true) {
+  function getThreadMarkSelector(threadId) {
+    return `${MARK_SELECTOR}[data-thread-id='${CSS.escape(threadId)}']`;
+  }
+
+  function createMarkElement(thread, blockMode, includeChip = true, options = {}) {
     const mark = document.createElement(blockMode ? "div" : "span");
     mark.className = blockMode ? "cgqa-quote-mark cgqa-quote-mark-block" : "cgqa-quote-mark";
     mark.dataset.quoteId = thread.quoteId;
     mark.dataset.threadId = thread.threadId;
     mark.dataset.displayIndex = String(thread.displayIndex || "");
+    if (options.draft) {
+      mark.dataset.draft = "true";
+    }
 
     if (!includeChip) {
       return mark;
@@ -540,30 +547,63 @@
   }
 
   function updateMarkChip(thread) {
-    document.querySelectorAll(`${MARK_SELECTOR}[data-thread-id='${CSS.escape(thread.threadId)}'] .cgqa-quote-chip`).forEach((chip) => {
+    document.querySelectorAll(`${getThreadMarkSelector(thread.threadId)} .cgqa-quote-chip`).forEach((chip) => {
       chip.textContent = getChipText(thread);
     });
   }
 
-  function clearRenderedMarks() {
+  function unwrapMark(mark) {
+    if (mark.classList.contains("cgqa-quote-mark-block")) {
+      mark.remove();
+      return;
+    }
+
+    const parent = mark.parentNode;
+    if (!parent) {
+      mark.remove();
+      return;
+    }
+
+    while (mark.firstChild) {
+      const child = mark.firstChild;
+      if (child.classList && child.classList.contains("cgqa-quote-chip")) {
+        child.remove();
+      } else {
+        parent.insertBefore(child, mark);
+      }
+    }
+    mark.remove();
+    parent.normalize();
+  }
+
+  function clearRenderedMarks(options = {}) {
     document.querySelectorAll(MARK_SELECTOR).forEach((mark) => {
-      if (mark.classList.contains("cgqa-quote-mark-block")) {
-        mark.remove();
+      if (options.keepDraft && mark.dataset.draft === "true") {
         return;
       }
-
-      const parent = mark.parentNode;
-      while (mark.firstChild) {
-        const child = mark.firstChild;
-        if (child.classList && child.classList.contains("cgqa-quote-chip")) {
-          child.remove();
-        } else {
-          parent.insertBefore(child, mark);
-        }
-      }
-      mark.remove();
-      parent.normalize();
+      unwrapMark(mark);
     });
+  }
+
+  function removeThreadMark(threadId) {
+    if (!threadId) {
+      return;
+    }
+    document.querySelectorAll(getThreadMarkSelector(threadId)).forEach(unwrapMark);
+  }
+
+  function promoteThreadMark(thread) {
+    const marks = document.querySelectorAll(getThreadMarkSelector(thread.threadId));
+    marks.forEach((mark) => {
+      delete mark.dataset.draft;
+      mark.dataset.displayIndex = String(thread.displayIndex || "");
+    });
+    updateMarkChip(thread);
+    return marks.length > 0;
+  }
+
+  function hasThreadMark(threadId) {
+    return Boolean(threadId && document.querySelector(getThreadMarkSelector(threadId)));
   }
 
   function setActiveMark(threadId) {
@@ -572,7 +612,7 @@
     });
   }
 
-  function wrapRange(markdown, range, thread) {
+  function wrapRange(markdown, range, thread, options = {}) {
     const offsets = getRangeOffsets(markdown, range);
     const slices = offsets.startOffset >= 0 && offsets.endOffset > offsets.startOffset
       ? getTextSlicesByOffsets(markdown, offsets.startOffset, offsets.endOffset)
@@ -584,7 +624,7 @@
 
     try {
       for (let index = slices.length - 1; index >= 0; index -= 1) {
-        wrapTextSlice(slices[index], thread, index === slices.length - 1);
+        wrapTextSlice(slices[index], thread, index === slices.length - 1, options);
       }
       return true;
     } catch (_error) {
@@ -628,7 +668,7 @@
     return !text || /^\s+$/.test(text);
   }
 
-  function wrapTextSlice(slice, thread, includeChip) {
+  function wrapTextSlice(slice, thread, includeChip, options = {}) {
     let selectedNode = slice.node;
     if (slice.end < selectedNode.nodeValue.length) {
       selectedNode.splitText(slice.end);
@@ -637,12 +677,12 @@
       selectedNode = selectedNode.splitText(slice.start);
     }
 
-    const mark = createMarkElement(thread, false, includeChip);
+    const mark = createMarkElement(thread, false, includeChip, options);
     selectedNode.parentNode.insertBefore(mark, selectedNode);
     mark.insertBefore(selectedNode, mark.firstChild);
   }
 
-  function markBlock(markdown, range, thread) {
+  function markBlock(markdown, range, thread, options = {}) {
     const complex = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
       ? range.commonAncestorContainer
       : range.commonAncestorContainer.parentElement;
@@ -651,7 +691,7 @@
       return false;
     }
 
-    const mark = createMarkElement(thread, true);
+    const mark = createMarkElement(thread, true, true, options);
     block.insertAdjacentElement("afterend", mark);
     return true;
   }
@@ -673,6 +713,18 @@
     }
 
     return wrapRange(markdown, range, thread);
+  }
+
+  function renderDraftThreadMark(thread, markdown, range) {
+    if (!thread || !markdown || !range || hasThreadMark(thread.threadId)) {
+      return false;
+    }
+
+    if (isInsideComplexContent(range.startContainer) || isInsideComplexContent(range.endContainer)) {
+      return markBlock(markdown, range, thread, { draft: true });
+    }
+
+    return wrapRange(markdown, range, thread, { draft: true });
   }
 
   function resolveAnchorRange(markdown, anchor) {
@@ -1306,7 +1358,10 @@
     getLinearText,
     getMarkdownNode,
     renderThreadMark,
+    renderDraftThreadMark,
     clearRenderedMarks,
+    removeThreadMark,
+    promoteThreadMark,
     setActiveMark,
     updateMarkChip,
     getAllTurns,

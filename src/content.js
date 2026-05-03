@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.5.2-mark-after-first-question";
+  const CONTENT_VERSION = "0.5.3-draft-mark";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -51,6 +51,7 @@
 
     await loadThreads();
     bindEvents();
+    CGQADom.clearRenderedMarks();
     scheduleRestore();
     syncPageDecorations();
   }
@@ -210,6 +211,7 @@
       discardEmptyActiveThread();
       const thread = buildThread(selection);
       registerThread(thread);
+      renderDraftThreadMark(thread, selection);
       openThread(thread.threadId);
       clearCurrentSelection();
       state.pendingSelection = null;
@@ -280,6 +282,17 @@
     }
   }
 
+  function renderDraftThreadMark(thread, selection) {
+    try {
+      const rendered = CGQADom.renderDraftThreadMark(thread, selection.markdown, selection.range);
+      if (!rendered && selection.complex) {
+        CGQASidebar.showToast("已打开提问小窗，复杂选区将在发送后尝试恢复标记。");
+      }
+    } catch (error) {
+      console.error("[CGQA] render draft mark failed", error);
+    }
+  }
+
   function clearCurrentSelection() {
     const selection = window.getSelection();
     if (selection) {
@@ -341,6 +354,7 @@
 
     const thread = getThread(threadId);
     if (thread && !hasThreadStarted(thread)) {
+      CGQADom.removeThreadMark(threadId);
       state.threads = state.threads.filter((item) => item.threadId !== threadId);
     }
   }
@@ -390,7 +404,10 @@
 
   function renderSavedThread(thread) {
     if (hasThreadStarted(thread)) {
-      renderThreadMark(thread, { notify: true });
+      const promoted = CGQADom.promoteThreadMark(thread);
+      if (!promoted) {
+        renderThreadMark(thread, { notify: true });
+      }
       CGQADom.updateMarkChip(thread);
     }
     if (thread.threadId === state.activeThreadId) {
@@ -781,6 +798,7 @@
       stopPendingCapturePoll();
       clearPendingStableTimer();
     }
+    CGQADom.removeThreadMark(threadId);
     await CGQAStorage.deleteThread(state.conversationId, threadId);
     syncMainChatVisibility();
     closeSidebar();
@@ -791,7 +809,6 @@
     clearTimeout(state.restoreTimer);
     state.restoreTimer = setTimeout(() => {
       state.restoring = true;
-      CGQADom.clearRenderedMarks();
       state.threads.filter(hasThreadStarted).forEach((thread) => renderThreadMark(thread));
       if (state.activeThreadId) {
         CGQADom.setActiveMark(state.activeThreadId);
