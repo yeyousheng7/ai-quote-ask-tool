@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.5.3-draft-mark";
+  const CONTENT_VERSION = "0.5.4-stable-mark-lifecycle";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -208,13 +208,7 @@
         CGQASidebar.showToast("当前选区包含公式或代码结构，将使用保守标记。");
       }
 
-      discardEmptyActiveThread();
-      const thread = buildThread(selection);
-      registerThread(thread);
-      renderDraftThreadMark(thread, selection);
-      openThread(thread.threadId);
-      clearCurrentSelection();
-      state.pendingSelection = null;
+      startDraftThread(selection);
     } catch (error) {
       console.error("[CGQA] create thread failed", error);
       CGQASidebar.showToast("创建批注失败，请刷新页面后重试。");
@@ -258,6 +252,16 @@
     };
   }
 
+  function startDraftThread(selection) {
+    discardEmptyActiveThread();
+    const thread = buildThread(selection);
+    registerThread(thread);
+    renderDraftThreadMark(thread, selection);
+    openThread(thread.threadId);
+    clearCurrentSelection();
+    state.pendingSelection = null;
+  }
+
   function registerThread(thread) {
     state.threads.push(thread);
   }
@@ -291,6 +295,14 @@
     } catch (error) {
       console.error("[CGQA] render draft mark failed", error);
     }
+  }
+
+  function ensurePersistedThreadMark(thread, options = {}) {
+    const promoted = CGQADom.promoteThreadMark(thread);
+    if (!promoted) {
+      renderThreadMark(thread, options);
+    }
+    CGQADom.updateMarkChip(thread);
   }
 
   function clearCurrentSelection() {
@@ -354,9 +366,17 @@
 
     const thread = getThread(threadId);
     if (thread && !hasThreadStarted(thread)) {
-      CGQADom.removeThreadMark(threadId);
-      state.threads = state.threads.filter((item) => item.threadId !== threadId);
+      removeThreadFromRuntime(threadId);
     }
+  }
+
+  function removeThreadFromRuntime(threadId) {
+    CGQADom.removeThreadMark(threadId);
+    state.threads = state.threads.filter((thread) => thread.threadId !== threadId);
+  }
+
+  function restorePersistedMarks() {
+    state.threads.filter(hasThreadStarted).forEach((thread) => ensurePersistedThreadMark(thread));
   }
 
   function togglePanel() {
@@ -404,11 +424,7 @@
 
   function renderSavedThread(thread) {
     if (hasThreadStarted(thread)) {
-      const promoted = CGQADom.promoteThreadMark(thread);
-      if (!promoted) {
-        renderThreadMark(thread, { notify: true });
-      }
-      CGQADom.updateMarkChip(thread);
+      ensurePersistedThreadMark(thread, { notify: true });
     }
     if (thread.threadId === state.activeThreadId) {
       sidebar.render(thread);
@@ -792,13 +808,12 @@
       return;
     }
 
-    state.threads = state.threads.filter((thread) => thread.threadId !== threadId);
+    removeThreadFromRuntime(threadId);
     if (state.pendingResponse && state.pendingResponse.threadId === threadId) {
       state.pendingResponse = null;
       stopPendingCapturePoll();
       clearPendingStableTimer();
     }
-    CGQADom.removeThreadMark(threadId);
     await CGQAStorage.deleteThread(state.conversationId, threadId);
     syncMainChatVisibility();
     closeSidebar();
@@ -809,7 +824,7 @@
     clearTimeout(state.restoreTimer);
     state.restoreTimer = setTimeout(() => {
       state.restoring = true;
-      state.threads.filter(hasThreadStarted).forEach((thread) => renderThreadMark(thread));
+      restorePersistedMarks();
       if (state.activeThreadId) {
         CGQADom.setActiveMark(state.activeThreadId);
       }

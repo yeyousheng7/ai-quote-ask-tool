@@ -518,16 +518,24 @@
     return `${CHIP_SELECTOR}[data-thread-id='${CSS.escape(threadId)}']`;
   }
 
+  function applyQuotePartDataset(element, thread, options = {}) {
+    element.dataset.quoteId = thread.quoteId;
+    element.dataset.threadId = thread.threadId;
+    element.dataset.displayIndex = String(thread.displayIndex || "");
+    if (options.draft) {
+      element.dataset.draft = "true";
+    }
+  }
+
+  function promoteQuotePart(element, thread) {
+    delete element.dataset.draft;
+    element.dataset.displayIndex = String(thread.displayIndex || "");
+  }
+
   function createMarkElement(thread, blockMode, options = {}) {
     const mark = document.createElement(blockMode ? "div" : "span");
     mark.className = blockMode ? "cgqa-quote-mark cgqa-quote-mark-block" : "cgqa-quote-mark";
-    mark.dataset.quoteId = thread.quoteId;
-    mark.dataset.threadId = thread.threadId;
-    mark.dataset.displayIndex = String(thread.displayIndex || "");
-    if (options.draft) {
-      mark.dataset.draft = "true";
-    }
-
+    applyQuotePartDataset(mark, thread, options);
     return mark;
   }
 
@@ -535,12 +543,7 @@
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "cgqa-quote-chip";
-    chip.dataset.quoteId = thread.quoteId;
-    chip.dataset.threadId = thread.threadId;
-    chip.dataset.displayIndex = String(thread.displayIndex || "");
-    if (options.draft) {
-      chip.dataset.draft = "true";
-    }
+    applyQuotePartDataset(chip, thread, options);
     chip.textContent = getChipText(thread);
     chip.addEventListener("click", (event) => {
       event.preventDefault();
@@ -607,14 +610,8 @@
 
   function promoteThreadMark(thread) {
     const marks = document.querySelectorAll(getThreadMarkSelector(thread.threadId));
-    marks.forEach((mark) => {
-      delete mark.dataset.draft;
-      mark.dataset.displayIndex = String(thread.displayIndex || "");
-    });
-    document.querySelectorAll(getThreadChipSelector(thread.threadId)).forEach((chip) => {
-      delete chip.dataset.draft;
-      chip.dataset.displayIndex = String(thread.displayIndex || "");
-    });
+    marks.forEach((mark) => promoteQuotePart(mark, thread));
+    document.querySelectorAll(getThreadChipSelector(thread.threadId)).forEach((chip) => promoteQuotePart(chip, thread));
     updateMarkChip(thread);
     return marks.length > 0;
   }
