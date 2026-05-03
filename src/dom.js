@@ -2,6 +2,7 @@
   "use strict";
 
   const MARK_SELECTOR = ".cgqa-quote-mark";
+  const CHIP_SELECTOR = ".cgqa-quote-chip";
   const HIDDEN_TURN_CLASS = "cgqa-main-turn-hidden";
   const HIDDEN_COMPOSER_CLASS = "cgqa-composer-hidden";
   const HIDDEN_NATIVE_CONTROL_CLASS = "cgqa-native-control-hidden";
@@ -207,7 +208,7 @@
 
   function removeNonContentNodes(root) {
     root.querySelectorAll([
-      ".cgqa-quote-chip",
+      CHIP_SELECTOR,
       "button",
       "svg",
       "script",
@@ -513,7 +514,11 @@
     return `${MARK_SELECTOR}[data-thread-id='${CSS.escape(threadId)}']`;
   }
 
-  function createMarkElement(thread, blockMode, includeChip = true, options = {}) {
+  function getThreadChipSelector(threadId) {
+    return `${CHIP_SELECTOR}[data-thread-id='${CSS.escape(threadId)}']`;
+  }
+
+  function createMarkElement(thread, blockMode, options = {}) {
     const mark = document.createElement(blockMode ? "div" : "span");
     mark.className = blockMode ? "cgqa-quote-mark cgqa-quote-mark-block" : "cgqa-quote-mark";
     mark.dataset.quoteId = thread.quoteId;
@@ -523,13 +528,19 @@
       mark.dataset.draft = "true";
     }
 
-    if (!includeChip) {
-      return mark;
-    }
+    return mark;
+  }
 
+  function createChipElement(thread, options = {}) {
     const chip = document.createElement("button");
     chip.type = "button";
     chip.className = "cgqa-quote-chip";
+    chip.dataset.quoteId = thread.quoteId;
+    chip.dataset.threadId = thread.threadId;
+    chip.dataset.displayIndex = String(thread.displayIndex || "");
+    if (options.draft) {
+      chip.dataset.draft = "true";
+    }
     chip.textContent = getChipText(thread);
     chip.addEventListener("click", (event) => {
       event.preventDefault();
@@ -537,8 +548,7 @@
       globalThis.CGQAApp && globalThis.CGQAApp.openThread(thread.threadId);
     });
 
-    mark.append(chip);
-    return mark;
+    return chip;
   }
 
   function getChipText(thread) {
@@ -547,7 +557,7 @@
   }
 
   function updateMarkChip(thread) {
-    document.querySelectorAll(`${getThreadMarkSelector(thread.threadId)} .cgqa-quote-chip`).forEach((chip) => {
+    document.querySelectorAll(getThreadChipSelector(thread.threadId)).forEach((chip) => {
       chip.textContent = getChipText(thread);
     });
   }
@@ -566,17 +576,19 @@
 
     while (mark.firstChild) {
       const child = mark.firstChild;
-      if (child.classList && child.classList.contains("cgqa-quote-chip")) {
-        child.remove();
-      } else {
-        parent.insertBefore(child, mark);
-      }
+      parent.insertBefore(child, mark);
     }
     mark.remove();
     parent.normalize();
   }
 
   function clearRenderedMarks(options = {}) {
+    document.querySelectorAll(CHIP_SELECTOR).forEach((chip) => {
+      if (options.keepDraft && chip.dataset.draft === "true") {
+        return;
+      }
+      chip.remove();
+    });
     document.querySelectorAll(MARK_SELECTOR).forEach((mark) => {
       if (options.keepDraft && mark.dataset.draft === "true") {
         return;
@@ -589,6 +601,7 @@
     if (!threadId) {
       return;
     }
+    document.querySelectorAll(getThreadChipSelector(threadId)).forEach((chip) => chip.remove());
     document.querySelectorAll(getThreadMarkSelector(threadId)).forEach(unwrapMark);
   }
 
@@ -597,6 +610,10 @@
     marks.forEach((mark) => {
       delete mark.dataset.draft;
       mark.dataset.displayIndex = String(thread.displayIndex || "");
+    });
+    document.querySelectorAll(getThreadChipSelector(thread.threadId)).forEach((chip) => {
+      delete chip.dataset.draft;
+      chip.dataset.displayIndex = String(thread.displayIndex || "");
     });
     updateMarkChip(thread);
     return marks.length > 0;
@@ -677,9 +694,12 @@
       selectedNode = selectedNode.splitText(slice.start);
     }
 
-    const mark = createMarkElement(thread, false, includeChip, options);
+    const mark = createMarkElement(thread, false, options);
     selectedNode.parentNode.insertBefore(mark, selectedNode);
     mark.insertBefore(selectedNode, mark.firstChild);
+    if (includeChip) {
+      mark.parentNode.insertBefore(createChipElement(thread, options), mark.nextSibling);
+    }
   }
 
   function markBlock(markdown, range, thread, options = {}) {
@@ -691,7 +711,8 @@
       return false;
     }
 
-    const mark = createMarkElement(thread, true, true, options);
+    const mark = createMarkElement(thread, true, options);
+    mark.append(createChipElement(thread, options));
     block.insertAdjacentElement("afterend", mark);
     return true;
   }
