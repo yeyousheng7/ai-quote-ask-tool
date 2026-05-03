@@ -12,6 +12,8 @@
   - `src/sidebar.js` owns plugin UI rendering and panel interactions.
   - `src/storage.js` owns persisted thread data shape and migration/reset policy.
   - `src/styles.css` owns visual states only; do not encode behavior in CSS class hacks without a JS state owner.
+  - `popup.html` / `src/popup.js` own the extension action menu.
+  - `manager.html` / `src/manager.js` own the standalone management page.
 - Do not introduce a build chain, framework, CDN, or runtime dependency unless the project direction explicitly changes. This is a native Manifest V3 extension.
 - Read and write text files as UTF-8.
 
@@ -51,3 +53,5 @@ Before committing changes that touch quote selection, mark rendering, sending, c
 - Delete a thread; both the text mark and sibling chip are removed.
 - Use a thinking model; the sidebar does not capture `正在思考` as the final answer.
 - Captured sidebar output does not include plugin chips, hidden prompts, or tracking tokens.
+- Saving or deleting a thread updates the storage conversation index used by the management page.
+- The management page reads structured storage data only; do not scan ChatGPT DOM to reconstruct question history.

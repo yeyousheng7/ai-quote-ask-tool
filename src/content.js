@@ -97,11 +97,6 @@
     addEvent(document, "keydown", handleKeydown, true);
     addEvent(document, "click", handleQuoteMarkClick, true);
 
-    if (globalThis.chrome && chrome.runtime && chrome.runtime.onMessage) {
-      chrome.runtime.onMessage.addListener(handleRuntimeMessage);
-      state.cleanupTasks.push(() => chrome.runtime.onMessage.removeListener(handleRuntimeMessage));
-    }
-
     state.observer = new MutationObserver(handlePageMutation);
     state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
   }
@@ -109,12 +104,6 @@
   function addEvent(target, type, handler, options) {
     target.addEventListener(type, handler, options);
     state.cleanupTasks.push(() => target.removeEventListener(type, handler, options));
-  }
-
-  function handleRuntimeMessage(message) {
-    if (message && message.type === "CGQA_TOGGLE_PANEL") {
-      togglePanel();
-    }
   }
 
   function handleKeydown(event) {
@@ -224,6 +213,7 @@
     const sourceTurnId = CGQADom.getTurnId(selection.turn);
     const sourceMessageId = CGQADom.getMessageId(selection.turn);
     const quoteText = selection.exactText || selection.selectedText;
+    const conversationMeta = getConversationMeta();
 
     return {
       threadId,
@@ -248,8 +238,22 @@
       messages: [],
       mainChatItems: [],
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      sourceTitle: conversationMeta.title,
+      sourceUrl: conversationMeta.url
     };
+  }
+
+  function getConversationMeta() {
+    return {
+      title: getReadableConversationTitle(),
+      url: location.href
+    };
+  }
+
+  function getReadableConversationTitle() {
+    const title = String(document.title || "").replace(/\s*[-|]\s*ChatGPT\s*$/i, "").trim();
+    return title || `会话 ${state.conversationId.slice(0, 8)}`;
   }
 
   function startDraftThread(selection) {
@@ -379,28 +383,13 @@
     state.threads.filter(hasThreadStarted).forEach((thread) => ensurePersistedThreadMark(thread));
   }
 
-  function togglePanel() {
-    if (sidebar.isOpen && sidebar.isOpen()) {
-      closeSidebar();
-      return;
-    }
-
-    const latest = [...state.threads].reverse().find(hasThreadStarted);
-    if (latest) {
-      openThread(latest.threadId);
-      return;
-    }
-
-    sidebar.renderHelp();
-  }
-
   function getThread(threadId) {
     return state.threads.find((thread) => thread.threadId === threadId);
   }
 
   async function saveAndRenderThread(thread) {
     try {
-      const savedThread = await CGQAStorage.saveThread(thread);
+      const savedThread = await CGQAStorage.saveThread(thread, getConversationMeta());
       replaceThread(savedThread);
       renderSavedThread(savedThread);
       return savedThread;
@@ -864,8 +853,7 @@
   globalThis[RUNTIME_KEY] = {
     version: CONTENT_VERSION,
     destroy,
-    openThread,
-    togglePanel
+    openThread
   };
   globalThis.CGQAApp = globalThis[RUNTIME_KEY];
   globalThis.CGQAContentVersion = CONTENT_VERSION;

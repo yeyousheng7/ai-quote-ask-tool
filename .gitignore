@@ -1,5 +1,7 @@
 # Local ChatGPT export samples may contain account/session data.
 *.html
+!popup.html
+!manager.html
 
 # Local issue screenshots and editor-generated image notes.
 image/README/

@@ -109,20 +109,6 @@
       syncPanelToViewport(root);
     }
 
-    function renderHelp() {
-      root = createPanel(callbacks, {
-        displayIndex: "",
-        quoteText: "在 ChatGPT 的回复正文里划选文字，然后点击工具条里的“提问”按钮。创建后，同一段内容的追问会保存在这里。",
-        messages: [],
-        help: true
-      });
-      input = root.querySelector(".cgqa-input");
-      syncPanelToViewport(root);
-      if (input) {
-        input.disabled = true;
-      }
-    }
-
     function focusInput() {
       if (!input) {
         return;
@@ -153,7 +139,7 @@
 
     window.addEventListener("resize", handleResize);
 
-    return { render, renderHelp, focusInput, isOpen, destroy };
+    return { render, focusInput, isOpen, destroy };
   }
 
   function createPanel(callbacks, thread) {
@@ -163,13 +149,13 @@
     panel.id = "cgqa-root";
     panel.setAttribute("aria-live", "polite");
     applyPanelStyle(panel);
-    const inputDisabled = Boolean(thread.help || hasGeneratingMessage(thread));
+    const inputDisabled = hasGeneratingMessage(thread);
     panel.dataset.cgqaInputDisabled = inputDisabled ? "true" : "false";
 
     const header = createElement("header", "cgqa-panel-header");
     const titleWrap = createElement("div", "cgqa-panel-title-wrap");
-    const title = createElement("h2", "cgqa-panel-title", thread.help ? "批注提问" : `提问 ${thread.displayIndex}`);
-    const subtitle = createElement("div", "cgqa-panel-subtitle", thread.help ? "先选择一段 ChatGPT 回复" : "围绕该内容继续追问");
+    const title = createElement("h2", "cgqa-panel-title", `提问 ${thread.displayIndex}`);
+    const subtitle = createElement("div", "cgqa-panel-subtitle", "围绕该内容继续追问");
     const close = createElement("button", "cgqa-icon-button", "×");
     close.type = "button";
     close.title = "关闭";
@@ -179,11 +165,8 @@
     bindPanelDrag(panel, header);
 
     const quote = createElement("blockquote", "cgqa-quote-preview", thread.quoteText || "");
-    quote.hidden = Boolean(thread.help);
     const messages = createElement("div", "cgqa-messages");
-    if (thread.help) {
-      messages.append(createElement("div", "cgqa-empty", "当前会话还没有批注提问。"));
-    } else if (!thread.messages || thread.messages.length === 0) {
+    if (!thread.messages || thread.messages.length === 0) {
       messages.append(createElement("div", "cgqa-empty", "还没有围绕这段内容的提问。"));
     } else {
       thread.messages.forEach((message) => messages.append(renderMessage(message)));

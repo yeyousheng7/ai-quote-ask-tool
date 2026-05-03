@@ -1,14 +1,12 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT Quote Annotation",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Add lightweight quote annotation threads to ChatGPT conversations.",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "permissions": ["storage"],
   "action": {
-    "default_title": "ChatGPT Quote Annotation"
-  },
-  "background": {
-    "service_worker": "src/background.js"
+    "default_title": "ChatGPT 提问助手",
+    "default_popup": "popup.html"
   },
   "content_scripts": [
     {
