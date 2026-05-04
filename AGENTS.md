@@ -57,3 +57,4 @@ Before committing changes that touch quote selection, mark rendering, sending, c
 - Captured sidebar output does not include plugin chips, hidden prompts, or tracking tokens.
 - Saving or deleting a thread updates the storage conversation index used by the management page.
 - The management page reads structured storage data only; do not scan ChatGPT DOM to reconstruct question history.
+- Changing the sidebar reply style should persist globally and affect the next generated prompt without changing existing thread history.

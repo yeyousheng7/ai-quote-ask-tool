@@ -3,6 +3,8 @@
 
   const STORAGE_PREFIX = "cgqa:v2:";
   const INDEX_KEY = "cgqa:index:v1";
+  const SETTINGS_KEY = "cgqa:settings:v1";
+  const REPLY_STYLE_MODES = new Set(["default", "longer", "shorter", "custom"]);
 
   function getStorageKey(conversationId) {
     return `${STORAGE_PREFIX}${conversationId || "unknown"}`;
@@ -257,6 +259,43 @@
     await removeConversationSummary(conversationId);
   }
 
+  function normalizeReplyStyleSettings(settings) {
+    const replyStyle = settings && settings.replyStyle || {};
+    const mode = REPLY_STYLE_MODES.has(replyStyle.mode) ? replyStyle.mode : "default";
+    return {
+      replyStyle: {
+        mode,
+        customPrompt: String(replyStyle.customPrompt || "").trim()
+      }
+    };
+  }
+
+  async function getSettings() {
+    return normalizeReplyStyleSettings(await readChrome(SETTINGS_KEY));
+  }
+
+  async function saveSettings(settings) {
+    const nextSettings = normalizeReplyStyleSettings(settings);
+    await writeChrome(SETTINGS_KEY, {
+      ...nextSettings,
+      updatedAt: Date.now()
+    });
+    return nextSettings;
+  }
+
+  async function getReplyStyleSettings() {
+    return (await getSettings()).replyStyle;
+  }
+
+  async function saveReplyStyleSettings(replyStyle) {
+    const current = await getSettings();
+    const saved = await saveSettings({
+      ...current,
+      replyStyle
+    });
+    return saved.replyStyle;
+  }
+
   globalThis.CGQAStorage = {
     listConversations,
     getConversation,
@@ -264,6 +303,8 @@
     saveThread,
     deleteThread,
     deleteConversation,
-    rebuildConversationIndex
+    rebuildConversationIndex,
+    getReplyStyleSettings,
+    saveReplyStyleSettings
   };
 })();

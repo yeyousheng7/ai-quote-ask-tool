@@ -25,6 +25,10 @@
     creatingThread: false,
     loadingConversation: false,
     restoring: false,
+    replyStyle: {
+      mode: "default",
+      customPrompt: ""
+    },
     cleanupTasks: []
   };
 
@@ -43,10 +47,13 @@
 
   async function init() {
     state.conversationId = CGQADom.getConversationId();
+    state.replyStyle = await loadReplyStyle();
     sidebar = CGQASidebar.buildSidebar({
       onClose: closeSidebar,
       onSend: sendQuestion,
-      onDeleteThread: deleteActiveThread
+      onDeleteThread: deleteActiveThread,
+      getReplyStyle: () => state.replyStyle,
+      onReplyStyleChange: saveReplyStyle
     });
 
     await loadThreads();
@@ -54,6 +61,15 @@
     CGQADom.clearRenderedMarks();
     scheduleRestore();
     syncPageDecorations();
+  }
+
+  async function loadReplyStyle() {
+    try {
+      return normalizeReplyStyle(await CGQAStorage.getReplyStyleSettings());
+    } catch (error) {
+      console.error("[CGQA] load reply style failed", error);
+      return { mode: "default", customPrompt: "" };
+    }
   }
 
   async function loadThreads() {
@@ -421,11 +437,18 @@
   }
 
   function buildPrompt(thread, question, promptToken) {
-    return [
+    const styleInstruction = getReplyStyleInstruction();
+    const lines = [
       `围绕 提问 ${thread.displayIndex} 的批注提问`,
       "",
       "你正在回答用户围绕某段引用的追问。请只回答用户问题，不要复述这段系统说明。",
       "请不要在回答中提及或输出追踪标记。",
+    ];
+    if (styleInstruction) {
+      lines.push(styleInstruction);
+    }
+    return [
+      ...lines,
       "",
       "<quote>",
       thread.quoteText,
@@ -439,6 +462,41 @@
       promptToken,
       "</tracking_token>"
     ].join("\n");
+  }
+
+  function getReplyStyleInstruction() {
+    const mode = state.replyStyle && state.replyStyle.mode || "default";
+    if (mode === "longer") {
+      return "回复风格要求：在保持准确和相关的前提下，回答得稍微完整、展开一些。";
+    }
+    if (mode === "shorter") {
+      return "回复风格要求：请尽量简洁回答，只保留必要信息。";
+    }
+    if (mode === "custom") {
+      const customPrompt = String(state.replyStyle && state.replyStyle.customPrompt || "").trim();
+      return customPrompt ? `回复风格要求：${customPrompt}` : "";
+    }
+    return "";
+  }
+
+  async function saveReplyStyle(replyStyle) {
+    state.replyStyle = normalizeReplyStyle(replyStyle);
+    try {
+      state.replyStyle = await CGQAStorage.saveReplyStyleSettings(state.replyStyle);
+    } catch (error) {
+      console.error("[CGQA] save reply style failed", error);
+      CGQASidebar.showToast("回复风格保存失败，本页临时生效。");
+    }
+    return state.replyStyle;
+  }
+
+  function normalizeReplyStyle(replyStyle) {
+    const allowedModes = new Set(["default", "longer", "shorter", "custom"]);
+    const mode = allowedModes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    return {
+      mode,
+      customPrompt: String(replyStyle && replyStyle.customPrompt || "").trim()
+    };
   }
 
   async function sendQuestion(rawQuestion) {

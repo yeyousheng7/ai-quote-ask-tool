@@ -49,6 +49,7 @@
   function getIconPaths(name) {
     const icons = {
       arrowUp: ["M12 19V5", "M5 12l7-7 7 7"],
+      chevronUp: ["M6 15l6-6 6 6"],
       message: [
         "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z",
         "M8 9h8",
@@ -209,7 +210,7 @@
     const deleteThread = createElement("button", "cgqa-text-button", "删除提问");
     deleteThread.type = "button";
     deleteThread.addEventListener("click", () => callbacks.onDeleteThread());
-    actions.append(deleteThread);
+    actions.append(deleteThread, createReplyStyleControl(callbacks));
     footer.append(inputRow, actions);
 
     panel.append(header, quote, messages, footer);
@@ -222,6 +223,144 @@
 
   function canSubmitInput(input, inputDisabled) {
     return Boolean(input && !inputDisabled && !input.disabled && input.value.trim());
+  }
+
+  function createReplyStyleControl(callbacks) {
+    const current = normalizeReplyStyle(callbacks.getReplyStyle && callbacks.getReplyStyle());
+    const wrap = createElement("div", "cgqa-reply-style");
+    const toggle = createElement("button", "cgqa-reply-style-toggle");
+    toggle.type = "button";
+    toggle.title = "回复风格";
+    toggle.setAttribute("aria-haspopup", "menu");
+    toggle.setAttribute("aria-expanded", "false");
+    const toggleLabel = createElement("span", "cgqa-reply-style-label", getReplyStyleLabel(current.mode));
+    toggle.append(toggleLabel, createSvgIcon("chevronUp", "cgqa-svg-icon cgqa-reply-style-icon"));
+
+    const menu = createElement("div", "cgqa-reply-style-menu");
+    menu.hidden = true;
+    menu.setAttribute("role", "menu");
+    const customInput = createElement("textarea", "cgqa-reply-style-custom");
+    customInput.placeholder = "写下你希望 ChatGPT 遵循的回复风格...";
+    customInput.rows = 3;
+    customInput.value = current.customPrompt;
+
+    getReplyStyleOptions().forEach((option) => {
+      const item = createElement("button", "cgqa-reply-style-option");
+      item.type = "button";
+      item.setAttribute("role", "menuitemradio");
+      item.dataset.mode = option.mode;
+      item.setAttribute("aria-checked", option.mode === current.mode ? "true" : "false");
+      item.textContent = option.label;
+      item.addEventListener("click", () => {
+        const next = normalizeReplyStyle({
+          mode: option.mode,
+          customPrompt: customInput.value
+        });
+        applyReplyStyleSelection(callbacks, wrap, next);
+        if (option.mode === "custom") {
+          customInput.focus();
+        } else {
+          setReplyStyleMenuOpen(wrap, false);
+        }
+      });
+      menu.append(item);
+    });
+
+    const customBox = createElement("div", "cgqa-reply-style-custom-box");
+    const customHint = createElement("div", "cgqa-reply-style-custom-hint", "自定义提示词会插入到提问的系统提示词中");
+    customInput.addEventListener("input", () => {
+      if (getSelectedReplyStyleMode(wrap) === "custom") {
+        applyReplyStyleSelection(callbacks, wrap, {
+          mode: "custom",
+          customPrompt: customInput.value
+        }, { debounce: true });
+      }
+    });
+    customBox.append(customInput, customHint);
+    menu.append(customBox);
+
+    toggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      setReplyStyleMenuOpen(wrap, !expanded);
+    });
+    wrap.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        setReplyStyleMenuOpen(wrap, false);
+        toggle.focus();
+      }
+    });
+    wrap.append(toggle, menu);
+    updateReplyStyleControl(wrap, current);
+    return wrap;
+  }
+
+  function getReplyStyleOptions() {
+    return [
+      { mode: "default", label: "默认" },
+      { mode: "longer", label: "长一点" },
+      { mode: "shorter", label: "短一点" },
+      { mode: "custom", label: "自定义" }
+    ];
+  }
+
+  function normalizeReplyStyle(replyStyle) {
+    const modes = new Set(getReplyStyleOptions().map((option) => option.mode));
+    const mode = modes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    return {
+      mode,
+      customPrompt: String(replyStyle && replyStyle.customPrompt || "").trim()
+    };
+  }
+
+  function getReplyStyleLabel(mode) {
+    const option = getReplyStyleOptions().find((item) => item.mode === mode);
+    return option ? option.label : "默认";
+  }
+
+  function getSelectedReplyStyleMode(wrap) {
+    const checked = wrap.querySelector(".cgqa-reply-style-option[aria-checked='true']");
+    return checked ? checked.dataset.mode : "default";
+  }
+
+  function setReplyStyleMenuOpen(wrap, open) {
+    const toggle = wrap.querySelector(".cgqa-reply-style-toggle");
+    const menu = wrap.querySelector(".cgqa-reply-style-menu");
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    menu.hidden = !open;
+  }
+
+  function updateReplyStyleControl(wrap, replyStyle) {
+    const style = normalizeReplyStyle(replyStyle);
+    wrap.querySelector(".cgqa-reply-style-label").textContent = getReplyStyleLabel(style.mode);
+    wrap.querySelectorAll(".cgqa-reply-style-option").forEach((option) => {
+      option.setAttribute("aria-checked", option.dataset.mode === style.mode ? "true" : "false");
+    });
+    const customInput = wrap.querySelector(".cgqa-reply-style-custom");
+    if (document.activeElement !== customInput) {
+      customInput.value = style.customPrompt;
+    }
+    wrap.classList.toggle("is-custom", style.mode === "custom");
+  }
+
+  function applyReplyStyleSelection(callbacks, wrap, replyStyle, options = {}) {
+    const next = normalizeReplyStyle(replyStyle);
+    updateReplyStyleControl(wrap, next);
+    clearTimeout(wrap.cgqaReplyStyleTimer);
+    const persist = () => {
+      Promise.resolve(callbacks.onReplyStyleChange && callbacks.onReplyStyleChange(next))
+        .then((saved) => {
+          if (saved) {
+            updateReplyStyleControl(wrap, saved);
+          }
+        })
+        .catch((error) => console.error("[CGQA] reply style update failed", error));
+    };
+    if (options.debounce) {
+      wrap.cgqaReplyStyleTimer = setTimeout(persist, 350);
+      return;
+    }
+    persist();
   }
 
   function updateSendState(input, send, inputDisabled) {

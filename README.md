@@ -20,6 +20,7 @@ Clicking the extension icon opens a small menu. Use `打开提问管理` to open
 - A draggable floating annotation panel opens for that quote.
 - The ChatGPT main composer is visually hidden while a quote panel is open, so follow-up questions go through the panel while the underlying composer remains mounted for scripted submission.
 - Questions typed in the panel are saved in the quote thread and sent through the ChatGPT main composer with the quote as hidden context.
+- The panel can remember a global reply style: default, longer, shorter, or a custom instruction inserted into the generated prompt.
 - Plugin-generated main-chat prompts and their replies are hidden while the quote thread exists, then restored when the quote is deleted.
 - Threads are stored locally with `chrome.storage.local`, grouped by conversation id, and indexed for the standalone management page.
 - The management page can view saved conversations, delete a single question thread, delete all saved threads in a conversation, and open the original conversation URL.
