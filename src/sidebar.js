@@ -210,7 +210,8 @@
     const deleteThread = createElement("button", "cgqa-text-button", "删除提问");
     deleteThread.type = "button";
     deleteThread.addEventListener("click", () => callbacks.onDeleteThread());
-    actions.append(deleteThread, createReplyStyleControl(callbacks));
+    const replyStyle = createReplyStyleControls(callbacks);
+    actions.append(deleteThread, replyStyle.control, replyStyle.editor);
     footer.append(inputRow, actions);
 
     panel.append(header, quote, messages, footer);
@@ -225,24 +226,21 @@
     return Boolean(input && !inputDisabled && !input.disabled && input.value.trim());
   }
 
-  function createReplyStyleControl(callbacks) {
+  function createReplyStyleControls(callbacks) {
     const current = normalizeReplyStyle(callbacks.getReplyStyle && callbacks.getReplyStyle());
     const wrap = createElement("div", "cgqa-reply-style");
+    const editor = createReplyStyleInlineEditor(callbacks, wrap);
     const toggle = createElement("button", "cgqa-reply-style-toggle");
     toggle.type = "button";
     toggle.title = "回复风格";
     toggle.setAttribute("aria-haspopup", "menu");
     toggle.setAttribute("aria-expanded", "false");
-    const toggleLabel = createElement("span", "cgqa-reply-style-label", getReplyStyleLabel(current.mode));
+    const toggleLabel = createElement("span", "cgqa-reply-style-label");
     toggle.append(toggleLabel, createSvgIcon("chevronUp", "cgqa-svg-icon cgqa-reply-style-icon"));
 
     const menu = createElement("div", "cgqa-reply-style-menu");
     menu.hidden = true;
     menu.setAttribute("role", "menu");
-    const customInput = createElement("textarea", "cgqa-reply-style-custom");
-    customInput.placeholder = "写下你希望 ChatGPT 遵循的回复风格...";
-    customInput.rows = 3;
-    customInput.value = current.customPrompt;
 
     getReplyStyleOptions().forEach((option) => {
       const item = createElement("button", "cgqa-reply-style-option");
@@ -252,32 +250,19 @@
       item.setAttribute("aria-checked", option.mode === current.mode ? "true" : "false");
       item.textContent = option.label;
       item.addEventListener("click", () => {
-        const next = normalizeReplyStyle({
-          mode: option.mode,
-          customPrompt: customInput.value
-        });
-        applyReplyStyleSelection(callbacks, wrap, next);
+        const latest = normalizeReplyStyle(callbacks.getReplyStyle && callbacks.getReplyStyle());
+        setReplyStyleMenuOpen(wrap, false);
         if (option.mode === "custom") {
-          customInput.focus();
-        } else {
-          setReplyStyleMenuOpen(wrap, false);
+          startReplyStyleEditing(editor, latest.customPrompt);
+          return;
         }
+        applyReplyStyleSelection(callbacks, wrap, {
+          mode: option.mode,
+          customPrompt: latest.customPrompt
+        });
       });
       menu.append(item);
     });
-
-    const customBox = createElement("div", "cgqa-reply-style-custom-box");
-    const customHint = createElement("div", "cgqa-reply-style-custom-hint", "自定义提示词会插入到提问的系统提示词中");
-    customInput.addEventListener("input", () => {
-      if (getSelectedReplyStyleMode(wrap) === "custom") {
-        applyReplyStyleSelection(callbacks, wrap, {
-          mode: "custom",
-          customPrompt: customInput.value
-        }, { debounce: true });
-      }
-    });
-    customBox.append(customInput, customHint);
-    menu.append(customBox);
 
     toggle.addEventListener("click", (event) => {
       event.preventDefault();
@@ -292,7 +277,79 @@
     });
     wrap.append(toggle, menu);
     updateReplyStyleControl(wrap, current);
-    return wrap;
+    return { control: wrap, editor };
+  }
+
+  function createReplyStyleInlineEditor(callbacks, wrap) {
+    const editor = createElement("div", "cgqa-reply-style-editor");
+    editor.hidden = true;
+    const input = createElement("input", "cgqa-reply-style-editor-input");
+    input.type = "text";
+    input.placeholder = "输入你希望遵循的回复风格...";
+    const save = createElement("button", "cgqa-reply-style-editor-save", "↵");
+    save.type = "button";
+    save.title = "保存回复风格";
+
+    const finish = (saveValue) => finishReplyStyleEditing(callbacks, wrap, editor, saveValue);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        finish(true);
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        finish(false);
+      }
+    });
+    input.addEventListener("blur", () => finish(true));
+    save.addEventListener("mousedown", (event) => event.preventDefault());
+    save.addEventListener("click", () => finish(true));
+    editor.append(input, save);
+    return editor;
+  }
+
+  function startReplyStyleEditing(editor, initialValue) {
+    const actions = editor.closest(".cgqa-panel-actions");
+    const input = editor.querySelector(".cgqa-reply-style-editor-input");
+    if (!actions || !input) {
+      return;
+    }
+    actions.classList.add("is-reply-style-editing");
+    editor.hidden = false;
+    editor.dataset.editing = "true";
+    input.value = initialValue || "";
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  }
+
+  function finishReplyStyleEditing(callbacks, wrap, editor, saveValue) {
+    if (editor.dataset.editing !== "true") {
+      return;
+    }
+
+    editor.dataset.editing = "false";
+    const actions = editor.closest(".cgqa-panel-actions");
+    const input = editor.querySelector(".cgqa-reply-style-editor-input");
+    const value = input ? input.value.trim() : "";
+    if (actions) {
+      actions.classList.remove("is-reply-style-editing");
+    }
+    editor.hidden = true;
+
+    if (!saveValue) {
+      updateReplyStyleControl(wrap, callbacks.getReplyStyle && callbacks.getReplyStyle());
+      return;
+    }
+
+    applyReplyStyleSelection(callbacks, wrap, value ? {
+      mode: "custom",
+      customPrompt: value
+    } : {
+      mode: "default",
+      customPrompt: ""
+    });
   }
 
   function getReplyStyleOptions() {
@@ -306,21 +363,18 @@
 
   function normalizeReplyStyle(replyStyle) {
     const modes = new Set(getReplyStyleOptions().map((option) => option.mode));
-    const mode = modes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    const customPrompt = String(replyStyle && replyStyle.customPrompt || "").trim();
+    const selectedMode = modes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    const mode = selectedMode === "custom" && !customPrompt ? "default" : selectedMode;
     return {
       mode,
-      customPrompt: String(replyStyle && replyStyle.customPrompt || "").trim()
+      customPrompt
     };
   }
 
   function getReplyStyleLabel(mode) {
     const option = getReplyStyleOptions().find((item) => item.mode === mode);
     return option ? option.label : "默认";
-  }
-
-  function getSelectedReplyStyleMode(wrap) {
-    const checked = wrap.querySelector(".cgqa-reply-style-option[aria-checked='true']");
-    return checked ? checked.dataset.mode : "default";
   }
 
   function setReplyStyleMenuOpen(wrap, open) {
@@ -332,35 +386,34 @@
 
   function updateReplyStyleControl(wrap, replyStyle) {
     const style = normalizeReplyStyle(replyStyle);
-    wrap.querySelector(".cgqa-reply-style-label").textContent = getReplyStyleLabel(style.mode);
+    const label = wrap.querySelector(".cgqa-reply-style-label");
+    const displayLabel = getReplyStyleDisplayLabel(style);
+    label.textContent = displayLabel;
+    label.title = displayLabel;
+    wrap.querySelector(".cgqa-reply-style-toggle").title = displayLabel;
     wrap.querySelectorAll(".cgqa-reply-style-option").forEach((option) => {
       option.setAttribute("aria-checked", option.dataset.mode === style.mode ? "true" : "false");
     });
-    const customInput = wrap.querySelector(".cgqa-reply-style-custom");
-    if (document.activeElement !== customInput) {
-      customInput.value = style.customPrompt;
-    }
     wrap.classList.toggle("is-custom", style.mode === "custom");
   }
 
-  function applyReplyStyleSelection(callbacks, wrap, replyStyle, options = {}) {
+  function getReplyStyleDisplayLabel(style) {
+    if (style.mode === "custom" && style.customPrompt) {
+      return `自定义：${style.customPrompt}`;
+    }
+    return getReplyStyleLabel(style.mode);
+  }
+
+  function applyReplyStyleSelection(callbacks, wrap, replyStyle) {
     const next = normalizeReplyStyle(replyStyle);
     updateReplyStyleControl(wrap, next);
-    clearTimeout(wrap.cgqaReplyStyleTimer);
-    const persist = () => {
-      Promise.resolve(callbacks.onReplyStyleChange && callbacks.onReplyStyleChange(next))
-        .then((saved) => {
-          if (saved) {
-            updateReplyStyleControl(wrap, saved);
-          }
-        })
-        .catch((error) => console.error("[CGQA] reply style update failed", error));
-    };
-    if (options.debounce) {
-      wrap.cgqaReplyStyleTimer = setTimeout(persist, 350);
-      return;
-    }
-    persist();
+    Promise.resolve(callbacks.onReplyStyleChange && callbacks.onReplyStyleChange(next))
+      .then((saved) => {
+        if (saved) {
+          updateReplyStyleControl(wrap, saved);
+        }
+      })
+      .catch((error) => console.error("[CGQA] reply style update failed", error));
   }
 
   function updateSendState(input, send, inputDisabled) {

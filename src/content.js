@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.6.0-provider-runtime";
+  const CONTENT_VERSION = "0.6.1-inline-reply-style";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -518,10 +518,12 @@
 
   function normalizeReplyStyle(replyStyle) {
     const allowedModes = new Set(["default", "longer", "shorter", "custom"]);
-    const mode = allowedModes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    const customPrompt = String(replyStyle && replyStyle.customPrompt || "").trim();
+    const selectedMode = allowedModes.has(replyStyle && replyStyle.mode) ? replyStyle.mode : "default";
+    const mode = selectedMode === "custom" && !customPrompt ? "default" : selectedMode;
     return {
       mode,
-      customPrompt: String(replyStyle && replyStyle.customPrompt || "").trim()
+      customPrompt
     };
   }
 

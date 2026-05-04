@@ -10,7 +10,7 @@
   }
 
   function getConversationMeta() {
-    const conversationId = CGQADom.getConversationId();
+    const conversationId = CGQAChatGPTDom.getConversationId();
     const title = String(document.title || "").replace(/\s*[-|]\s*ChatGPT\s*$/i, "").trim();
     return {
       providerId: PROVIDER_ID,
@@ -29,7 +29,7 @@
   }
 
   function createChatGPTProvider() {
-    if (!globalThis.CGQADom) {
+    if (!globalThis.CGQAChatGPTDom) {
       return null;
     }
 
@@ -37,24 +37,24 @@
       id: PROVIDER_ID,
       label: PROVIDER_LABEL,
       matchesLocation,
-      getConversationId: CGQADom.getConversationId,
+      getConversationId: CGQAChatGPTDom.getConversationId,
       getConversationMeta,
-      validateSelection: CGQADom.validateSelection,
-      getTurnId: CGQADom.getTurnId,
-      getMessageId: CGQADom.getMessageId,
-      renderThreadMark: CGQADom.renderThreadMark,
-      renderDraftThreadMark: CGQADom.renderDraftThreadMark,
-      clearRenderedMarks: CGQADom.clearRenderedMarks,
-      removeThreadMark: CGQADom.removeThreadMark,
-      promoteThreadMark: CGQADom.promoteThreadMark,
-      setActiveMark: CGQADom.setActiveMark,
-      updateMarkChip: CGQADom.updateMarkChip,
-      getAllTurnRecords: CGQADom.getAllTurnRecords,
-      getAssistantMessageRecords: CGQADom.getAssistantMessageRecords,
-      syncHiddenMainTurns: CGQADom.syncHiddenMainTurns,
-      setMainComposerHidden: CGQADom.setMainComposerHidden,
-      setNativeGenerationControlsHidden: CGQADom.setNativeGenerationControlsHidden,
-      submitPrompt: CGQADom.submitPrompt
+      validateSelection: CGQAChatGPTDom.validateSelection,
+      getTurnId: CGQAChatGPTDom.getTurnId,
+      getMessageId: CGQAChatGPTDom.getMessageId,
+      renderThreadMark: CGQAChatGPTDom.renderThreadMark,
+      renderDraftThreadMark: CGQAChatGPTDom.renderDraftThreadMark,
+      clearRenderedMarks: CGQAChatGPTDom.clearRenderedMarks,
+      removeThreadMark: CGQAChatGPTDom.removeThreadMark,
+      promoteThreadMark: CGQAChatGPTDom.promoteThreadMark,
+      setActiveMark: CGQAChatGPTDom.setActiveMark,
+      updateMarkChip: CGQAChatGPTDom.updateMarkChip,
+      getAllTurnRecords: CGQAChatGPTDom.getAllTurnRecords,
+      getAssistantMessageRecords: CGQAChatGPTDom.getAssistantMessageRecords,
+      syncHiddenMainTurns: CGQAChatGPTDom.syncHiddenMainTurns,
+      setMainComposerHidden: CGQAChatGPTDom.setMainComposerHidden,
+      setNativeGenerationControlsHidden: CGQAChatGPTDom.setNativeGenerationControlsHidden,
+      submitPrompt: CGQAChatGPTDom.submitPrompt
     };
   }
 

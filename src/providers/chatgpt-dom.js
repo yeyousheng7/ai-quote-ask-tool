@@ -1243,7 +1243,7 @@
     }
   }
 
-  globalThis.CGQADom = {
+  globalThis.CGQAChatGPTDom = {
     validateSelection,
     getConversationId,
     getTurnId,

@@ -2,8 +2,7 @@
   "use strict";
 
   const STORAGE_PREFIX = "cgqa:v3:";
-  const LEGACY_STORAGE_PREFIX = "cgqa:v2:";
-  const INDEX_KEY = "cgqa:index:v2";
+  const INDEX_KEY = "cgqa:index:v3";
   const SETTINGS_KEY = "cgqa:settings:v1";
   const DEFAULT_PROVIDER_ID = "chatgpt";
   const DEFAULT_PROVIDER_LABEL = "ChatGPT";
@@ -46,10 +45,6 @@
   function getStorageKey(ref) {
     const normalized = normalizeConversationRef(ref);
     return `${STORAGE_PREFIX}${encodeKeyPart(normalized.providerId)}:${encodeKeyPart(normalized.conversationId)}`;
-  }
-
-  function getLegacyStorageKey(conversationId) {
-    return `${LEGACY_STORAGE_PREFIX}${conversationId || "unknown"}`;
   }
 
   function encodeKeyPart(value) {
@@ -125,24 +120,13 @@
       });
     }
 
-    if (key && key.startsWith(LEGACY_STORAGE_PREFIX)) {
-      return normalizeConversationRef({
-        providerId: DEFAULT_PROVIDER_ID,
-        providerLabel: DEFAULT_PROVIDER_LABEL,
-        conversationId: key.slice(LEGACY_STORAGE_PREFIX.length)
-      });
-    }
-
     return null;
   }
 
   async function readConversation(ref) {
     const conversationRef = normalizeConversationRef(ref);
     const key = getStorageKey(conversationRef);
-    let data = await readChrome(key);
-    if (!data && conversationRef.providerId === DEFAULT_PROVIDER_ID) {
-      data = await readChrome(getLegacyStorageKey(conversationRef.conversationId));
-    }
+    const data = await readChrome(key);
     return normalizeConversationData(conversationRef, data);
   }
 
@@ -158,9 +142,6 @@
     };
 
     await writeChrome(key, value);
-    if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
-      await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
-    }
     await upsertConversationSummary(buildConversationSummary(conversationRef, value));
     return value;
   }
@@ -321,7 +302,7 @@
   async function rebuildConversationIndex() {
     const values = await readAllChrome();
     const conversations = Object.keys(values)
-      .filter((key) => key.startsWith(STORAGE_PREFIX) || key.startsWith(LEGACY_STORAGE_PREFIX))
+      .filter((key) => key.startsWith(STORAGE_PREFIX))
       .map((key) => {
         const ref = getConversationRefFromKey(key);
         return ref ? buildConversationSummary(ref, values[key]) : null;
@@ -397,9 +378,6 @@
     const threads = (data.threads || []).filter((thread) => thread.threadId !== threadId);
     if (threads.length === 0) {
       await removeChrome(getStorageKey(conversationRef));
-      if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
-        await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
-      }
       await removeConversationSummary(conversationRef);
       return [];
     }
@@ -410,19 +388,18 @@
   async function deleteConversation(ref) {
     const conversationRef = normalizeConversationRef(ref);
     await removeChrome(getStorageKey(conversationRef));
-    if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
-      await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
-    }
     await removeConversationSummary(conversationRef);
   }
 
   function normalizeReplyStyleSettings(settings) {
     const replyStyle = settings && settings.replyStyle || {};
-    const mode = REPLY_STYLE_MODES.has(replyStyle.mode) ? replyStyle.mode : "default";
+    const customPrompt = String(replyStyle.customPrompt || "").trim();
+    const selectedMode = REPLY_STYLE_MODES.has(replyStyle.mode) ? replyStyle.mode : "default";
+    const mode = selectedMode === "custom" && !customPrompt ? "default" : selectedMode;
     return {
       replyStyle: {
         mode,
-        customPrompt: String(replyStyle.customPrompt || "").trim()
+        customPrompt
       }
     };
   }
