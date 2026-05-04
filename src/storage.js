@@ -1,13 +1,67 @@
 (function () {
   "use strict";
 
-  const STORAGE_PREFIX = "cgqa:v2:";
-  const INDEX_KEY = "cgqa:index:v1";
+  const STORAGE_PREFIX = "cgqa:v3:";
+  const LEGACY_STORAGE_PREFIX = "cgqa:v2:";
+  const INDEX_KEY = "cgqa:index:v2";
   const SETTINGS_KEY = "cgqa:settings:v1";
+  const DEFAULT_PROVIDER_ID = "chatgpt";
+  const DEFAULT_PROVIDER_LABEL = "ChatGPT";
   const REPLY_STYLE_MODES = new Set(["default", "longer", "shorter", "custom"]);
 
-  function getStorageKey(conversationId) {
-    return `${STORAGE_PREFIX}${conversationId || "unknown"}`;
+  function normalizeConversationRef(ref) {
+    if (ref && typeof ref === "object") {
+      const providerId = normalizeId(ref.providerId || DEFAULT_PROVIDER_ID, DEFAULT_PROVIDER_ID);
+      const conversationId = normalizeId(ref.conversationId, "unknown");
+      return {
+        providerId,
+        providerLabel: String(ref.providerLabel || getFallbackProviderLabel(providerId)).trim(),
+        conversationId,
+        storageId: makeStorageId(providerId, conversationId)
+      };
+    }
+
+    const conversationId = normalizeId(ref, "unknown");
+    return {
+      providerId: DEFAULT_PROVIDER_ID,
+      providerLabel: DEFAULT_PROVIDER_LABEL,
+      conversationId,
+      storageId: makeStorageId(DEFAULT_PROVIDER_ID, conversationId)
+    };
+  }
+
+  function normalizeId(value, fallback) {
+    const normalized = String(value || "").trim();
+    return normalized || fallback;
+  }
+
+  function getFallbackProviderLabel(providerId) {
+    return providerId === DEFAULT_PROVIDER_ID ? DEFAULT_PROVIDER_LABEL : providerId;
+  }
+
+  function makeStorageId(providerId, conversationId) {
+    return `${providerId}:${conversationId}`;
+  }
+
+  function getStorageKey(ref) {
+    const normalized = normalizeConversationRef(ref);
+    return `${STORAGE_PREFIX}${encodeKeyPart(normalized.providerId)}:${encodeKeyPart(normalized.conversationId)}`;
+  }
+
+  function getLegacyStorageKey(conversationId) {
+    return `${LEGACY_STORAGE_PREFIX}${conversationId || "unknown"}`;
+  }
+
+  function encodeKeyPart(value) {
+    return encodeURIComponent(String(value || ""));
+  }
+
+  function decodeKeyPart(value) {
+    try {
+      return decodeURIComponent(value || "");
+    } catch (_error) {
+      return value || "";
+    }
   }
 
   function readChrome(key) {
@@ -58,20 +112,45 @@
     });
   }
 
-  function getConversationIdFromKey(key) {
-    return key && key.startsWith(STORAGE_PREFIX) ? key.slice(STORAGE_PREFIX.length) : "";
+  function getConversationRefFromKey(key) {
+    if (key && key.startsWith(STORAGE_PREFIX)) {
+      const rest = key.slice(STORAGE_PREFIX.length);
+      const separatorIndex = rest.indexOf(":");
+      if (separatorIndex < 0) {
+        return null;
+      }
+      return normalizeConversationRef({
+        providerId: decodeKeyPart(rest.slice(0, separatorIndex)),
+        conversationId: decodeKeyPart(rest.slice(separatorIndex + 1))
+      });
+    }
+
+    if (key && key.startsWith(LEGACY_STORAGE_PREFIX)) {
+      return normalizeConversationRef({
+        providerId: DEFAULT_PROVIDER_ID,
+        providerLabel: DEFAULT_PROVIDER_LABEL,
+        conversationId: key.slice(LEGACY_STORAGE_PREFIX.length)
+      });
+    }
+
+    return null;
   }
 
-  async function readConversation(conversationId) {
-    const key = getStorageKey(conversationId);
-    const data = await readChrome(key);
-    return normalizeConversationData(conversationId, data);
+  async function readConversation(ref) {
+    const conversationRef = normalizeConversationRef(ref);
+    const key = getStorageKey(conversationRef);
+    let data = await readChrome(key);
+    if (!data && conversationRef.providerId === DEFAULT_PROVIDER_ID) {
+      data = await readChrome(getLegacyStorageKey(conversationRef.conversationId));
+    }
+    return normalizeConversationData(conversationRef, data);
   }
 
-  async function writeConversation(conversationId, data) {
-    const key = getStorageKey(conversationId);
+  async function writeConversation(ref, data) {
+    const conversationRef = normalizeConversationRef(ref);
+    const key = getStorageKey(conversationRef);
     const threads = Array.isArray(data && data.threads) ? data.threads : [];
-    const meta = normalizeConversationMeta(conversationId, data && data.meta, threads);
+    const meta = normalizeConversationMeta(conversationRef, data && data.meta, threads);
     const value = {
       meta,
       threads,
@@ -79,41 +158,69 @@
     };
 
     await writeChrome(key, value);
-    await upsertConversationSummary(buildConversationSummary(conversationId, value));
+    if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
+      await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
+    }
+    await upsertConversationSummary(buildConversationSummary(conversationRef, value));
     return value;
   }
 
-  function normalizeConversationData(conversationId, data) {
-    const threads = Array.isArray(data && data.threads) ? data.threads : [];
+  function normalizeConversationData(ref, data) {
+    const conversationRef = normalizeConversationRef(ref);
+    const threads = Array.isArray(data && data.threads) ? data.threads.map((thread) => {
+      return normalizeThreadProvider(thread, conversationRef);
+    }) : [];
     return {
-      meta: normalizeConversationMeta(conversationId, data && data.meta, threads),
+      meta: normalizeConversationMeta(conversationRef, data && data.meta, threads),
       threads,
       updatedAt: Number(data && data.updatedAt) || getLatestThreadTime(threads)
     };
   }
 
-  function normalizeConversationMeta(conversationId, meta, threads = []) {
+  function normalizeThreadProvider(thread, conversationRef) {
+    if (!thread || typeof thread !== "object") {
+      return thread;
+    }
+    return {
+      ...thread,
+      sourceProviderId: thread.sourceProviderId || conversationRef.providerId,
+      sourceProviderLabel: thread.sourceProviderLabel || conversationRef.providerLabel,
+      sourceConversationId: thread.sourceConversationId || conversationRef.conversationId
+    };
+  }
+
+  function normalizeConversationMeta(ref, meta, threads = []) {
+    const conversationRef = normalizeConversationRef({
+      ...ref,
+      providerLabel: meta && meta.providerLabel || ref.providerLabel
+    });
     const firstThread = threads[0] || {};
     const title = String(meta && meta.title || firstThread.sourceTitle || "").trim();
-    const url = String(meta && meta.url || firstThread.sourceUrl || getConversationUrl(conversationId)).trim();
+    const url = String(meta && meta.url || firstThread.sourceUrl || getConversationUrl(conversationRef)).trim();
     return {
-      conversationId,
-      title: title || getFallbackTitle(conversationId),
+      providerId: conversationRef.providerId,
+      providerLabel: conversationRef.providerLabel,
+      conversationId: conversationRef.conversationId,
+      storageId: conversationRef.storageId,
+      title: title || getFallbackTitle(conversationRef),
       url,
       createdAt: Number(meta && meta.createdAt) || getEarliestThreadTime(threads) || Date.now(),
       updatedAt: Number(meta && meta.updatedAt) || getLatestThreadTime(threads) || Date.now()
     };
   }
 
-  function getConversationUrl(conversationId) {
-    return conversationId && conversationId !== "new-chat" ? `https://chatgpt.com/c/${conversationId}` : "";
+  function getConversationUrl(ref) {
+    if (ref.providerId !== DEFAULT_PROVIDER_ID) {
+      return "";
+    }
+    return ref.conversationId && ref.conversationId !== "new-chat" ? `https://chatgpt.com/c/${ref.conversationId}` : "";
   }
 
-  function getFallbackTitle(conversationId) {
-    if (!conversationId || conversationId === "new-chat") {
+  function getFallbackTitle(ref) {
+    if (!ref.conversationId || ref.conversationId === "new-chat") {
       return "新会话";
     }
-    return `会话 ${conversationId.slice(0, 8)}`;
+    return `会话 ${ref.conversationId.slice(0, 8)}`;
   }
 
   function getEarliestThreadTime(threads) {
@@ -138,10 +245,14 @@
     }, 0);
   }
 
-  function buildConversationSummary(conversationId, data) {
-    const normalized = normalizeConversationData(conversationId, data);
+  function buildConversationSummary(ref, data) {
+    const conversationRef = normalizeConversationRef(ref);
+    const normalized = normalizeConversationData(conversationRef, data);
     return {
-      conversationId,
+      providerId: normalized.meta.providerId,
+      providerLabel: normalized.meta.providerLabel,
+      conversationId: normalized.meta.conversationId,
+      storageId: normalized.meta.storageId,
       title: normalized.meta.title,
       url: normalized.meta.url,
       threadCount: normalized.threads.length,
@@ -154,14 +265,35 @@
   async function readIndex() {
     const index = await readChrome(INDEX_KEY);
     return {
-      conversations: Array.isArray(index && index.conversations) ? index.conversations : []
+      conversations: Array.isArray(index && index.conversations)
+        ? index.conversations.map(normalizeConversationSummary).filter(Boolean)
+        : []
+    };
+  }
+
+  function normalizeConversationSummary(summary) {
+    if (!summary || !summary.conversationId) {
+      return null;
+    }
+    const ref = normalizeConversationRef({
+      providerId: summary.providerId || DEFAULT_PROVIDER_ID,
+      providerLabel: summary.providerLabel || getFallbackProviderLabel(summary.providerId || DEFAULT_PROVIDER_ID),
+      conversationId: summary.conversationId
+    });
+    return {
+      ...summary,
+      providerId: ref.providerId,
+      providerLabel: ref.providerLabel,
+      conversationId: ref.conversationId,
+      storageId: ref.storageId
     };
   }
 
   async function writeIndex(conversations) {
     const value = {
       conversations: conversations
-        .filter((item) => item && item.conversationId && item.threadCount > 0)
+        .map(normalizeConversationSummary)
+        .filter((item) => item && item.storageId && item.threadCount > 0)
         .sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0)),
       updatedAt: Date.now()
     };
@@ -170,26 +302,31 @@
   }
 
   async function upsertConversationSummary(summary) {
+    const normalized = normalizeConversationSummary(summary);
+    if (!normalized) {
+      return;
+    }
     const index = await readIndex();
-    const conversations = index.conversations.filter((item) => item.conversationId !== summary.conversationId);
-    conversations.push(summary);
+    const conversations = index.conversations.filter((item) => item.storageId !== normalized.storageId);
+    conversations.push(normalized);
     await writeIndex(conversations);
   }
 
-  async function removeConversationSummary(conversationId) {
+  async function removeConversationSummary(ref) {
+    const conversationRef = normalizeConversationRef(ref);
     const index = await readIndex();
-    await writeIndex(index.conversations.filter((item) => item.conversationId !== conversationId));
+    await writeIndex(index.conversations.filter((item) => item.storageId !== conversationRef.storageId));
   }
 
   async function rebuildConversationIndex() {
     const values = await readAllChrome();
     const conversations = Object.keys(values)
-      .filter((key) => key.startsWith(STORAGE_PREFIX))
+      .filter((key) => key.startsWith(STORAGE_PREFIX) || key.startsWith(LEGACY_STORAGE_PREFIX))
       .map((key) => {
-        const conversationId = getConversationIdFromKey(key);
-        return buildConversationSummary(conversationId, values[key]);
+        const ref = getConversationRefFromKey(key);
+        return ref ? buildConversationSummary(ref, values[key]) : null;
       })
-      .filter((summary) => summary.threadCount > 0);
+      .filter((summary) => summary && summary.threadCount > 0);
     await writeIndex(conversations);
     return conversations.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0));
   }
@@ -202,33 +339,45 @@
     return rebuildConversationIndex();
   }
 
-  async function getConversation(conversationId) {
-    const data = await readConversation(conversationId);
+  async function getConversation(ref) {
+    const conversationRef = normalizeConversationRef(ref);
+    const data = await readConversation(conversationRef);
     return {
-      ...buildConversationSummary(conversationId, data),
+      ...buildConversationSummary(conversationRef, data),
       meta: data.meta,
       threads: data.threads
     };
   }
 
-  async function listThreads(conversationId) {
-    const data = await readConversation(conversationId);
+  async function listThreads(ref) {
+    const data = await readConversation(ref);
     return data.threads || [];
   }
 
   async function saveThread(thread, conversationMeta = {}) {
-    const data = await readConversation(thread.sourceConversationId);
+    const conversationRef = normalizeConversationRef({
+      providerId: thread.sourceProviderId || conversationMeta.providerId || DEFAULT_PROVIDER_ID,
+      providerLabel: thread.sourceProviderLabel || conversationMeta.providerLabel || DEFAULT_PROVIDER_LABEL,
+      conversationId: thread.sourceConversationId
+    });
+    const data = await readConversation(conversationRef);
     const threads = data.threads || [];
     const index = threads.findIndex((item) => item.threadId === thread.threadId);
     const nextThread = {
       ...thread,
+      sourceProviderId: conversationRef.providerId,
+      sourceProviderLabel: conversationRef.providerLabel,
+      sourceConversationId: conversationRef.conversationId,
       sourceTitle: conversationMeta.title || thread.sourceTitle || data.meta.title,
       sourceUrl: conversationMeta.url || thread.sourceUrl || data.meta.url,
       updatedAt: Date.now()
     };
-    const meta = normalizeConversationMeta(thread.sourceConversationId, {
+    const meta = normalizeConversationMeta(conversationRef, {
       ...data.meta,
       ...conversationMeta,
+      providerId: conversationRef.providerId,
+      providerLabel: conversationRef.providerLabel,
+      conversationId: conversationRef.conversationId,
       updatedAt: nextThread.updatedAt
     }, threads);
 
@@ -238,25 +387,33 @@
       threads.push(nextThread);
     }
 
-    await writeConversation(thread.sourceConversationId, { meta, threads });
+    await writeConversation(conversationRef, { meta, threads });
     return nextThread;
   }
 
-  async function deleteThread(conversationId, threadId) {
-    const data = await readConversation(conversationId);
+  async function deleteThread(ref, threadId) {
+    const conversationRef = normalizeConversationRef(ref);
+    const data = await readConversation(conversationRef);
     const threads = (data.threads || []).filter((thread) => thread.threadId !== threadId);
     if (threads.length === 0) {
-      await removeChrome(getStorageKey(conversationId));
-      await removeConversationSummary(conversationId);
+      await removeChrome(getStorageKey(conversationRef));
+      if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
+        await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
+      }
+      await removeConversationSummary(conversationRef);
       return [];
     }
-    await writeConversation(conversationId, { meta: data.meta, threads });
+    await writeConversation(conversationRef, { meta: data.meta, threads });
     return threads;
   }
 
-  async function deleteConversation(conversationId) {
-    await removeChrome(getStorageKey(conversationId));
-    await removeConversationSummary(conversationId);
+  async function deleteConversation(ref) {
+    const conversationRef = normalizeConversationRef(ref);
+    await removeChrome(getStorageKey(conversationRef));
+    if (conversationRef.providerId === DEFAULT_PROVIDER_ID) {
+      await removeChrome(getLegacyStorageKey(conversationRef.conversationId));
+    }
+    await removeConversationSummary(conversationRef);
   }
 
   function normalizeReplyStyleSettings(settings) {

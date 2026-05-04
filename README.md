@@ -30,9 +30,11 @@ Clicking the extension icon opens a small menu. Use `打开提问管理` to open
 The extension is split into these responsibilities:
 
 - `src/content.js` is the orchestration layer. It owns lifecycle, event binding, thread state, and the quote flow: validate selection -> build thread -> register thread -> open panel -> persist thread -> render marker.
-- `src/dom.js` is the ChatGPT page adapter. It owns selectors, selection offsets, quote marker rendering/restoration, prompt filling, send button lookup, and assistant response capture.
+- `src/dom.js` is the current ChatGPT DOM driver. It owns ChatGPT selectors, selection offsets, quote marker rendering/restoration, prompt filling, send button lookup, and assistant response capture.
+- `src/providers/chatgpt.js` wraps the ChatGPT DOM driver as a provider. Future AI sites should add their own provider/driver instead of adding host-specific branches to `content.js`.
+- `src/provider.js` resolves the active page provider for the current host.
 - `src/sidebar.js` is the panel and selection-action renderer. It rebuilds the overlay panel on open and attaches the `提问` action to ChatGPT's native selection toolbar.
-- `src/storage.js` owns the persisted conversation/thread shape and the conversation index used by the management page.
+- `src/storage.js` owns the provider-aware persisted conversation/thread shape and the conversation index used by the management page.
 - `src/sanitize.js` owns shared safe HTML rendering for saved assistant replies across the sidebar and management page.
 - `popup.html` and `src/popup.js` own the extension action menu.
 - `manager.html` and `src/manager.js` own the standalone local management page.
@@ -43,5 +45,6 @@ When changing behavior, keep the order above intact. Opening the panel should st
 
 - The extension does not call OpenAI APIs directly.
 - Data stays local unless ChatGPT itself receives a question through the page composer.
+- Saved conversations are keyed by provider id and conversation id so future AI-page adapters can share the same manager without id collisions.
 - Code blocks and formulas are handled conservatively so the extension does not corrupt ChatGPT's rendered DOM.
 - If a saved quote cannot be matched safely after refresh or response switching, the extension does not render a marker.

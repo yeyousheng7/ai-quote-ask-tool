@@ -7,10 +7,12 @@
 - Treat cleanup as part of each feature or bug-fix commit. Do not leave temporary compatibility branches, duplicated state handling, or one-off DOM patches for a later "cleanup only" commit unless the user explicitly asks to split the work.
 - When changing behavior, update the nearest lifecycle helper and this checklist if the new behavior creates a recurring regression risk.
 - Keep behavior ownership clear:
-  - `src/content.js` owns runtime state, thread lifecycle, persistence timing, and ChatGPT send/capture orchestration.
-  - `src/dom.js` owns ChatGPT DOM queries, selection validation, quote anchoring, mark rendering, main composer operations, and assistant message extraction.
+  - `src/content.js` owns runtime state, thread lifecycle, persistence timing, and provider-neutral send/capture orchestration.
+  - `src/provider.js` owns active page provider resolution.
+  - `src/providers/*.js` own provider registration and provider metadata. Add new AI sites here rather than adding host-specific branches to `src/content.js`.
+  - `src/dom.js` currently owns the ChatGPT DOM driver: ChatGPT DOM queries, selection validation, quote anchoring, mark rendering, main composer operations, and assistant message extraction.
   - `src/sidebar.js` owns plugin UI rendering and panel interactions.
-  - `src/storage.js` owns persisted thread data shape and migration/reset policy.
+  - `src/storage.js` owns provider-aware persisted thread data shape and migration/reset policy.
   - `src/sanitize.js` owns shared safe HTML rendering for saved assistant replies. Do not duplicate sanitizer allowlists in page-specific modules.
   - `src/styles.css` owns visual states only; do not encode behavior in CSS class hacks without a JS state owner.
   - `popup.html` / `src/popup.js` own the extension action menu.

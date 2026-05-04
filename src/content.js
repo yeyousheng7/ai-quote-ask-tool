@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.5.4-stable-mark-lifecycle";
+  const CONTENT_VERSION = "0.6.0-provider-runtime";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -13,6 +13,8 @@
   }
 
   const state = {
+    providerId: "",
+    providerLabel: "",
     conversationId: "",
     threads: [],
     activeThreadId: "",
@@ -37,6 +39,7 @@
   const PROMPT_TOKEN_PREFIX = "CGQA_PROMPT";
 
   let sidebar = null;
+  let provider = null;
 
   function uid(prefix) {
     if (crypto && crypto.randomUUID) {
@@ -46,7 +49,11 @@
   }
 
   async function init() {
-    state.conversationId = CGQADom.getConversationId();
+    provider = getPageProvider();
+    if (!provider) {
+      return;
+    }
+    syncProviderState();
     state.replyStyle = await loadReplyStyle();
     sidebar = CGQASidebar.buildSidebar({
       onClose: closeSidebar,
@@ -58,9 +65,23 @@
 
     await loadThreads();
     bindEvents();
-    CGQADom.clearRenderedMarks();
+    provider.clearRenderedMarks();
     scheduleRestore();
     syncPageDecorations();
+  }
+
+  function getPageProvider() {
+    if (!globalThis.CGQAProvider) {
+      console.warn("[CGQA] page provider is not available");
+      return null;
+    }
+    return globalThis.CGQAProvider;
+  }
+
+  function syncProviderState() {
+    state.providerId = provider.id;
+    state.providerLabel = provider.label;
+    state.conversationId = provider.getConversationId();
   }
 
   async function loadReplyStyle() {
@@ -73,9 +94,17 @@
   }
 
   async function loadThreads() {
-    state.conversationId = CGQADom.getConversationId();
-    const storedThreads = await CGQAStorage.listThreads(state.conversationId);
+    syncProviderState();
+    const storedThreads = await CGQAStorage.listThreads(getConversationRef());
     state.threads = storedThreads.map(normalizeThread).filter(Boolean);
+  }
+
+  function getConversationRef() {
+    return {
+      providerId: state.providerId,
+      providerLabel: state.providerLabel,
+      conversationId: state.conversationId
+    };
   }
 
   function normalizeThread(thread) {
@@ -85,6 +114,8 @@
 
     return {
       ...thread,
+      sourceProviderId: thread.sourceProviderId || state.providerId,
+      sourceProviderLabel: thread.sourceProviderLabel || state.providerLabel,
       quoteText: String(thread.quoteText || ""),
       messages: Array.isArray(thread.messages) ? thread.messages : [],
       mainChatItems: getMainChatItems(thread)
@@ -133,7 +164,7 @@
       return;
     }
 
-    const nextConversationId = CGQADom.getConversationId();
+    const nextConversationId = provider.getConversationId();
     if (nextConversationId !== state.conversationId) {
       switchConversation().catch((error) => {
         console.error("[CGQA] switch conversation failed", error);
@@ -151,7 +182,7 @@
     resetTransientState();
     closeSidebar();
     CGQASidebar.hideSelectionMenu();
-    CGQADom.clearRenderedMarks();
+    provider.clearRenderedMarks();
     syncMainChatVisibility([]);
 
     try {
@@ -177,7 +208,7 @@
 
     setTimeout(() => {
       const selection = window.getSelection();
-      const result = CGQADom.validateSelection(selection);
+      const result = provider.validateSelection(selection);
       if (!result.ok) {
         CGQASidebar.hideSelectionMenu();
         if (selection && !selection.isCollapsed && result.reason) {
@@ -226,8 +257,8 @@
     const now = Date.now();
     const quoteId = uid("quote");
     const threadId = uid("thread");
-    const sourceTurnId = CGQADom.getTurnId(selection.turn);
-    const sourceMessageId = CGQADom.getMessageId(selection.turn);
+    const sourceTurnId = provider.getTurnId(selection.turn);
+    const sourceMessageId = provider.getMessageId(selection.turn);
     const quoteText = selection.exactText || selection.selectedText;
     const conversationMeta = getConversationMeta();
 
@@ -235,12 +266,15 @@
       threadId,
       quoteId,
       quoteText,
+      sourceProviderId: state.providerId,
+      sourceProviderLabel: state.providerLabel,
       sourceConversationId: state.conversationId,
       sourceTurnId,
       sourceMessageId,
       displayIndex: getNextDisplayIndex(),
       anchor: {
         quoteId,
+        sourceProviderId: state.providerId,
         sourceConversationId: state.conversationId,
         sourceTurnId,
         sourceMessageId,
@@ -261,15 +295,7 @@
   }
 
   function getConversationMeta() {
-    return {
-      title: getReadableConversationTitle(),
-      url: location.href
-    };
-  }
-
-  function getReadableConversationTitle() {
-    const title = String(document.title || "").replace(/\s*[-|]\s*ChatGPT\s*$/i, "").trim();
-    return title || `会话 ${state.conversationId.slice(0, 8)}`;
+    return provider.getConversationMeta();
   }
 
   function startDraftThread(selection) {
@@ -294,7 +320,7 @@
 
   function renderThreadMark(thread, options = {}) {
     try {
-      const rendered = CGQADom.renderThreadMark(thread);
+      const rendered = provider.renderThreadMark(thread);
       if (!rendered && options.notify) {
         CGQASidebar.showToast("已创建批注，但当前 DOM 无法安全渲染正文标记。");
       }
@@ -308,7 +334,7 @@
 
   function renderDraftThreadMark(thread, selection) {
     try {
-      const rendered = CGQADom.renderDraftThreadMark(thread, selection.markdown, selection.range);
+      const rendered = provider.renderDraftThreadMark(thread, selection.markdown, selection.range);
       if (!rendered && selection.complex) {
         CGQASidebar.showToast("已打开提问小窗，复杂选区将在发送后尝试恢复标记。");
       }
@@ -318,11 +344,11 @@
   }
 
   function ensurePersistedThreadMark(thread, options = {}) {
-    const promoted = CGQADom.promoteThreadMark(thread);
+    const promoted = provider.promoteThreadMark(thread);
     if (!promoted) {
       renderThreadMark(thread, options);
     }
-    CGQADom.updateMarkChip(thread);
+    provider.updateMarkChip(thread);
   }
 
   function clearCurrentSelection() {
@@ -340,7 +366,7 @@
     }
 
     state.activeThreadId = threadId;
-    CGQADom.setActiveMark(threadId);
+    provider.setActiveMark(threadId);
     sidebar.render(thread);
     sidebar.focusInput();
     syncPageDecorations();
@@ -373,7 +399,7 @@
   function closeSidebar() {
     discardEmptyActiveThread();
     state.activeThreadId = "";
-    CGQADom.setActiveMark("");
+    provider.setActiveMark("");
     sidebar.render(null);
     syncPageDecorations();
   }
@@ -391,7 +417,7 @@
   }
 
   function removeThreadFromRuntime(threadId) {
-    CGQADom.removeThreadMark(threadId);
+    provider.removeThreadMark(threadId);
     state.threads = state.threads.filter((thread) => thread.threadId !== threadId);
   }
 
@@ -536,7 +562,7 @@
     startPendingCapturePoll();
 
     try {
-      await CGQADom.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
+      await provider.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
       syncPageDecorations();
     } catch (error) {
       state.pendingResponse = null;
@@ -590,24 +616,24 @@
   }
 
   function syncMainChatVisibility(targets = getMainChatHideTargets()) {
-    if (!CGQADom.syncHiddenMainTurns) {
+    if (!provider.syncHiddenMainTurns) {
       return;
     }
-    CGQADom.syncHiddenMainTurns(targets);
+    provider.syncHiddenMainTurns(targets);
   }
 
   function syncMainComposerVisibility() {
-    if (!CGQADom.setMainComposerHidden) {
+    if (!provider.setMainComposerHidden) {
       return;
     }
-    CGQADom.setMainComposerHidden(Boolean(state.activeThreadId));
+    provider.setMainComposerHidden(Boolean(state.activeThreadId));
   }
 
   function syncNativeGenerationControlsVisibility() {
-    if (!CGQADom.setNativeGenerationControlsHidden) {
+    if (!provider.setNativeGenerationControlsHidden) {
       return;
     }
-    CGQADom.setNativeGenerationControlsHidden(Boolean(state.activeThreadId));
+    provider.setNativeGenerationControlsHidden(Boolean(state.activeThreadId));
   }
 
   function syncPageDecorations() {
@@ -617,7 +643,7 @@
   }
 
   function createResponseTracker(threadId, promptToken) {
-    const baselineRecords = CGQADom.getAssistantMessageRecords();
+    const baselineRecords = provider.getAssistantMessageRecords();
     const baselineTextBySignature = {};
     baselineRecords.forEach((record) => {
       baselineTextBySignature[getAssistantRecordSignature(record)] = record.text || "";
@@ -713,7 +739,7 @@
   }
 
   function findPendingAssistantCandidate(thread) {
-    const records = CGQADom.getAssistantMessageRecords();
+    const records = provider.getAssistantMessageRecords();
     const tracker = state.pendingResponse;
     if (!tracker) {
       return null;
@@ -766,7 +792,7 @@
       return null;
     }
 
-    const records = CGQADom.getAllTurnRecords();
+    const records = provider.getAllTurnRecords();
     const promptIndex = findLastPromptUserRecordIndex(records, promptToken);
     if (promptIndex < 0) {
       return null;
@@ -806,7 +832,7 @@
   }
 
   function findAssistantRecordBySignature(signature) {
-    return CGQADom.getAssistantMessageRecords().find((record) => {
+    return provider.getAssistantMessageRecords().find((record) => {
       return getAssistantRecordSignature(record) === signature;
     });
   }
@@ -861,7 +887,7 @@
       stopPendingCapturePoll();
       clearPendingStableTimer();
     }
-    await CGQAStorage.deleteThread(state.conversationId, threadId);
+    await CGQAStorage.deleteThread(getConversationRef(), threadId);
     syncMainChatVisibility();
     closeSidebar();
     scheduleRestore();
@@ -873,7 +899,7 @@
       state.restoring = true;
       restorePersistedMarks();
       if (state.activeThreadId) {
-        CGQADom.setActiveMark(state.activeThreadId);
+        provider.setActiveMark(state.activeThreadId);
       }
       syncPageDecorations();
       setTimeout(() => {
@@ -897,14 +923,14 @@
     } else if (sidebar) {
       sidebar.render(null);
     }
-    if (CGQADom.syncHiddenMainTurns) {
-      CGQADom.syncHiddenMainTurns([]);
+    if (provider && provider.syncHiddenMainTurns) {
+      provider.syncHiddenMainTurns([]);
     }
-    if (CGQADom.setMainComposerHidden) {
-      CGQADom.setMainComposerHidden(false);
+    if (provider && provider.setMainComposerHidden) {
+      provider.setMainComposerHidden(false);
     }
-    if (CGQADom.setNativeGenerationControlsHidden) {
-      CGQADom.setNativeGenerationControlsHidden(false);
+    if (provider && provider.setNativeGenerationControlsHidden) {
+      provider.setNativeGenerationControlsHidden(false);
     }
   }
 

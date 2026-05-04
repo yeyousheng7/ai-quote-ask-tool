@@ -3,7 +3,7 @@
 
   const state = {
     conversations: [],
-    activeConversationId: "",
+    activeStorageId: "",
     loading: false,
     queuedLoadOptions: null
   };
@@ -37,8 +37,8 @@
       state.conversations = options.rebuildIndex
         ? await CGQAStorage.rebuildConversationIndex()
         : await CGQAStorage.listConversations();
-      if (!state.conversations.some((item) => item.conversationId === state.activeConversationId)) {
-        state.activeConversationId = state.conversations[0] && state.conversations[0].conversationId || "";
+      if (!state.conversations.some((item) => item.storageId === state.activeStorageId)) {
+        state.activeStorageId = state.conversations[0] && state.conversations[0].storageId || "";
       }
       renderConversations();
       await renderActiveConversation();
@@ -58,11 +58,11 @@
 
     state.conversations.forEach((conversation) => {
       const item = conversationTemplate.content.firstElementChild.cloneNode(true);
-      item.classList.toggle("is-active", conversation.conversationId === state.activeConversationId);
+      item.classList.toggle("is-active", conversation.storageId === state.activeStorageId);
       item.querySelector(".conversation-title").textContent = conversation.title || "未命名会话";
       item.querySelector(".conversation-meta").textContent = `${conversation.threadCount || 0} 个提问 · ${formatTime(conversation.updatedAt)}`;
       item.addEventListener("click", async () => {
-        state.activeConversationId = conversation.conversationId;
+        state.activeStorageId = conversation.storageId;
         renderConversations();
         await renderActiveConversation();
       });
@@ -71,12 +71,18 @@
   }
 
   async function renderActiveConversation() {
-    if (!state.activeConversationId) {
+    if (!state.activeStorageId) {
       showEmpty();
       return;
     }
 
-    const conversation = await CGQAStorage.getConversation(state.activeConversationId);
+    const summary = state.conversations.find((item) => item.storageId === state.activeStorageId);
+    if (!summary) {
+      showEmpty();
+      return;
+    }
+
+    const conversation = await CGQAStorage.getConversation(summary);
     if (!conversation.threads.length) {
       showEmpty();
       return;
@@ -119,8 +125,8 @@
       if (!confirm("删除当前会话下的所有提问记录？")) {
         return;
       }
-      await CGQAStorage.deleteConversation(conversation.conversationId);
-      state.activeConversationId = "";
+      await CGQAStorage.deleteConversation(conversation);
+      state.activeStorageId = "";
       await load();
     });
     actions.append(remove);
@@ -151,7 +157,7 @@
       if (!confirm("删除这条提问记录？")) {
         return;
       }
-      await CGQAStorage.deleteThread(conversation.conversationId, thread.threadId);
+      await CGQAStorage.deleteThread(conversation, thread.threadId);
       await load();
     });
     header.append(titleWrap, remove);
