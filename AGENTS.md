@@ -28,6 +28,12 @@
 - When adding a new AI site, create a provider registration file and a provider-specific DOM driver. Avoid changing the ChatGPT DOM driver unless the provider contract itself needs to evolve.
 - If a provider needs a different selection or marking strategy for better user experience, implement it inside that provider driver instead of weakening the ChatGPT path.
 
+## Watcher Lifecycle
+
+- Do not add a permanent `MutationObserver` on `document.body` or another broad subtree for normal operation.
+- Use URL/history events for SPA navigation, bounded restore timers for delayed message rendering, and short-lived pending-response watchers only while a generated answer is being captured.
+- Every timer, interval, observer, and patched browser API must have a clear owner and be cleaned up in `destroy()`.
+
 ## Quote Mark Lifecycle
 
 - First visible quote mark rendering must use the live user selection/range whenever possible. Do not delay the first mark render until anchor restoration.

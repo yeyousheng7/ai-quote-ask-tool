@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.6.1-inline-reply-style";
+  const CONTENT_VERSION = "0.7.0-scoped-watchers";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -20,9 +20,11 @@
     activeThreadId: "",
     pendingSelection: null,
     pendingResponse: null,
-    observer: null,
-    restoreTimer: 0,
+    pendingCaptureObserver: null,
+    restoreTimers: [],
+    locationCheckTimers: [],
     pendingCaptureTimer: 0,
+    pendingCaptureMutationTimer: 0,
     pendingStableTimer: 0,
     creatingThread: false,
     loadingConversation: false,
@@ -36,6 +38,8 @@
 
   const RESPONSE_STABLE_DELAY_MS = 1400;
   const RESPONSE_TIMEOUT_MS = 120000;
+  const RESTORE_DELAYS_MS = [250, 1000, 2500, 5000];
+  const LOCATION_CHECK_DELAYS_MS = [0, 250, 1000];
   const PROMPT_TOKEN_PREFIX = "CGQA_PROMPT";
 
   let sidebar = null;
@@ -66,7 +70,7 @@
     await loadThreads();
     bindEvents();
     provider.clearRenderedMarks();
-    scheduleRestore();
+    scheduleRestoreBurst();
     syncPageDecorations();
   }
 
@@ -143,9 +147,7 @@
     addEvent(document, "mouseup", handleMouseUp, true);
     addEvent(document, "keydown", handleKeydown, true);
     addEvent(document, "click", handleQuoteMarkClick, true);
-
-    state.observer = new MutationObserver(handlePageMutation);
-    state.observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    bindNavigationEvents();
   }
 
   function addEvent(target, type, handler, options) {
@@ -159,22 +161,52 @@
     }
   }
 
-  function handlePageMutation() {
-    if (state.restoring || state.loadingConversation) {
+  function bindNavigationEvents() {
+    const scheduleCheck = () => scheduleConversationCheckBurst();
+    const originalPushState = history.pushState;
+    const originalReplaceState = history.replaceState;
+
+    history.pushState = function (...args) {
+      const result = originalPushState.apply(this, args);
+      scheduleCheck();
+      return result;
+    };
+    history.replaceState = function (...args) {
+      const result = originalReplaceState.apply(this, args);
+      scheduleCheck();
+      return result;
+    };
+
+    state.cleanupTasks.push(() => {
+      history.pushState = originalPushState;
+      history.replaceState = originalReplaceState;
+    });
+    addEvent(window, "popstate", scheduleCheck);
+    addEvent(window, "pageshow", scheduleCheck);
+    addEvent(window, "focus", scheduleCheck);
+    addEvent(document, "click", scheduleCheck, true);
+  }
+
+  function scheduleConversationCheckBurst() {
+    clearLocationCheckTimers();
+    state.locationCheckTimers = LOCATION_CHECK_DELAYS_MS.map((delay) => {
+      return setTimeout(checkConversationChange, delay);
+    });
+  }
+
+  function checkConversationChange() {
+    if (state.loadingConversation) {
       return;
     }
 
     const nextConversationId = provider.getConversationId();
-    if (nextConversationId !== state.conversationId) {
-      switchConversation().catch((error) => {
-        console.error("[CGQA] switch conversation failed", error);
-      });
+    if (nextConversationId === state.conversationId) {
       return;
     }
 
-    scheduleRestore();
-    capturePendingAssistantIfReady();
-    syncPageDecorations();
+    switchConversation().catch((error) => {
+      console.error("[CGQA] switch conversation failed", error);
+    });
   }
 
   async function switchConversation() {
@@ -187,7 +219,7 @@
 
     try {
       await loadThreads();
-      scheduleRestore();
+      scheduleRestoreBurst();
       syncPageDecorations();
     } finally {
       state.loadingConversation = false;
@@ -197,7 +229,7 @@
   function resetTransientState() {
     state.pendingSelection = null;
     state.pendingResponse = null;
-    stopPendingCapturePoll();
+    stopPendingCaptureWatcher();
     clearPendingStableTimer();
   }
 
@@ -205,6 +237,7 @@
     if (isPluginUi(event.target)) {
       return;
     }
+    checkConversationChange();
 
     setTimeout(() => {
       const selection = window.getSelection();
@@ -561,14 +594,14 @@
     syncPageDecorations();
 
     state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
-    startPendingCapturePoll();
+    startPendingCaptureWatcher();
 
     try {
       await provider.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
       syncPageDecorations();
     } catch (error) {
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       clearPendingStableTimer();
       assistantMessage.content = error.message || "发送失败。";
       assistantMessage.status = "failed";
@@ -670,7 +703,7 @@
     const thread = getThread(state.pendingResponse.threadId);
     if (!thread) {
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       clearPendingStableTimer();
       return;
     }
@@ -680,7 +713,7 @@
     });
     if (!generating) {
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       clearPendingStableTimer();
       return;
     }
@@ -689,7 +722,7 @@
       generating.content = generating.content === "生成中..." ? "回答等待超时，请在主聊天中查看结果。" : generating.content;
       generating.status = "failed";
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       clearPendingStableTimer();
       saveAndRenderThread(thread).then(syncPageDecorations).catch((error) => {
         console.error("[CGQA] save timeout state failed", error);
@@ -737,7 +770,7 @@
       generating.contentFormat = generating.html ? "html" : "text";
       generating.status = "completed";
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       await saveAndRenderThread(thread);
       syncPageDecorations();
     }, RESPONSE_STABLE_DELAY_MS);
@@ -758,19 +791,43 @@
     return findChangedAssistantRecord(thread, records, tracker.baselineTextBySignature);
   }
 
-  function startPendingCapturePoll() {
-    stopPendingCapturePoll();
+  function startPendingCaptureWatcher() {
+    stopPendingCaptureWatcher();
     state.pendingCaptureTimer = setInterval(() => {
       capturePendingAssistantIfReady();
     }, 1000);
+
+    if (document.body) {
+      state.pendingCaptureObserver = new MutationObserver(handlePendingMutation);
+      state.pendingCaptureObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
   }
 
-  function stopPendingCapturePoll() {
-    if (!state.pendingCaptureTimer) {
+  function stopPendingCaptureWatcher() {
+    if (state.pendingCaptureTimer) {
+      clearInterval(state.pendingCaptureTimer);
+      state.pendingCaptureTimer = 0;
+    }
+    if (state.pendingCaptureObserver) {
+      state.pendingCaptureObserver.disconnect();
+      state.pendingCaptureObserver = null;
+    }
+    if (state.pendingCaptureMutationTimer) {
+      clearTimeout(state.pendingCaptureMutationTimer);
+      state.pendingCaptureMutationTimer = 0;
+    }
+  }
+
+  function handlePendingMutation() {
+    if (!state.pendingResponse || state.pendingCaptureMutationTimer) {
       return;
     }
-    clearInterval(state.pendingCaptureTimer);
-    state.pendingCaptureTimer = 0;
+
+    state.pendingCaptureMutationTimer = setTimeout(() => {
+      state.pendingCaptureMutationTimer = 0;
+      capturePendingAssistantIfReady();
+      syncPageDecorations();
+    }, 120);
   }
 
   function clearPendingStableTimer() {
@@ -889,38 +946,53 @@
     removeThreadFromRuntime(threadId);
     if (state.pendingResponse && state.pendingResponse.threadId === threadId) {
       state.pendingResponse = null;
-      stopPendingCapturePoll();
+      stopPendingCaptureWatcher();
       clearPendingStableTimer();
     }
     await CGQAStorage.deleteThread(getConversationRef(), threadId);
     syncMainChatVisibility();
     closeSidebar();
-    scheduleRestore();
+    scheduleRestoreBurst();
   }
 
-  function scheduleRestore() {
-    clearTimeout(state.restoreTimer);
-    state.restoreTimer = setTimeout(() => {
-      state.restoring = true;
-      restorePersistedMarks();
-      if (state.activeThreadId) {
-        provider.setActiveMark(state.activeThreadId);
-      }
-      syncPageDecorations();
-      setTimeout(() => {
-        state.restoring = false;
-      }, 0);
-    }, 250);
+  function scheduleRestoreBurst() {
+    clearRestoreTimers();
+    state.restoreTimers = RESTORE_DELAYS_MS.map((delay) => {
+      return setTimeout(runRestorePass, delay);
+    });
+  }
+
+  function runRestorePass() {
+    if (state.loadingConversation) {
+      return;
+    }
+
+    state.restoring = true;
+    restorePersistedMarks();
+    if (state.activeThreadId) {
+      provider.setActiveMark(state.activeThreadId);
+    }
+    syncPageDecorations();
+    setTimeout(() => {
+      state.restoring = false;
+    }, 0);
+  }
+
+  function clearRestoreTimers() {
+    state.restoreTimers.forEach((timer) => clearTimeout(timer));
+    state.restoreTimers = [];
+  }
+
+  function clearLocationCheckTimers() {
+    state.locationCheckTimers.forEach((timer) => clearTimeout(timer));
+    state.locationCheckTimers = [];
   }
 
   function destroy() {
-    clearTimeout(state.restoreTimer);
+    clearLocationCheckTimers();
+    clearRestoreTimers();
     clearPendingStableTimer();
-    stopPendingCapturePoll();
-    if (state.observer) {
-      state.observer.disconnect();
-      state.observer = null;
-    }
+    stopPendingCaptureWatcher();
     state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
     CGQASidebar.hideSelectionMenu();
     if (sidebar && typeof sidebar.destroy === "function") {
