@@ -772,11 +772,16 @@
 }
 
 .cgqa-quote-mark {
+  color: var(--cgqa-mark-text);
   background: var(--cgqa-mark-bg);
   border-bottom: 1px dashed var(--cgqa-accent);
   border-radius: 6px;
   padding: 0 2px;
   transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.cgqa-quote-mark * {
+  color: inherit !important;
 }
 
 .cgqa-quote-mark.is-active {
@@ -829,6 +834,11 @@
   font-weight: 620;
   line-height: 18px;
   white-space: nowrap;
+}
+
+.cgqa-quote-mark .cgqa-quote-chip,
+.cgqa-quote-mark .cgqa-quote-chip * {
+  color: var(--cgqa-accent-text) !important;
 }
 
 .cgqa-quote-chip:hover {
