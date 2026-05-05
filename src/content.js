@@ -512,11 +512,19 @@
       return savedThread;
     } catch (error) {
       console.error("[CGQA] save thread failed", error);
-      CGQASidebar.showToast("本地保存失败，本次批注仍会保留在当前页面。");
+      CGQASidebar.showToast(getSaveThreadErrorMessage(error));
       replaceThread(thread);
       renderSavedThread(thread);
       return thread;
     }
+  }
+
+  function getSaveThreadErrorMessage(error) {
+    const message = String(error && (error.message || error.toString && error.toString()) || "");
+    if (/extension context invalidated/i.test(message)) {
+      return "扩展刚刚重新加载过，请刷新当前页面后再保存提问。";
+    }
+    return "本地保存失败，本次批注仍会保留在当前页面。";
   }
 
   function replaceThread(nextThread) {
