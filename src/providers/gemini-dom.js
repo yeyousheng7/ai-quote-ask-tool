@@ -826,11 +826,14 @@
     if (!hidden) {
       return;
     }
-    getNativeGenerationControlCandidates().forEach(hideNativeGenerationControl);
+    const stopButton = findStopButton();
+    if (stopButton) {
+      hideNativeGenerationControl(stopButton);
+    }
   }
 
-  function setPendingInputBlocked(blocked) {
-    if (!blocked) {
+  function syncPendingResponseState(state) {
+    if (!state || !state.active) {
       removeInputBlocker();
       return;
     }
@@ -886,15 +889,6 @@
       inputBlocker.remove();
       inputBlocker = null;
     }
-  }
-
-  function getNativeGenerationControlCandidates() {
-    return Array.from(document.querySelectorAll("button, [role='button']")).filter((node) => {
-      if (node.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-toast")) {
-        return false;
-      }
-      return /停止|stop/.test(getNodeControlText(node));
-    });
   }
 
   function getNodeControlText(node) {
@@ -994,7 +988,7 @@
     throw new Error("无法触发 Gemini 发送，请手动点击主输入框发送按钮。");
   }
 
-  async function afterPendingResponseCaptured() {
+  async function completePendingResponse() {
     await new Promise((resolve) => setTimeout(resolve, 350));
     clickResidualStopButton();
     clearPromptText();
@@ -1004,10 +998,9 @@
   function clickResidualStopButton() {
     const button = findStopButton();
     if (!button) {
-      return false;
+      return;
     }
     clickElement(button);
-    return true;
   }
 
   function findStopButton() {
@@ -1029,7 +1022,7 @@
   function clearPromptText() {
     const editor = getPromptEditor();
     if (!editor) {
-      return false;
+      return;
     }
 
     editor.focus();
@@ -1045,7 +1038,6 @@
     }
     editor.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "deleteContentBackward", data: null }));
     editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
-    return true;
   }
 
   function getUserTurnCount() {
@@ -1139,8 +1131,8 @@
     syncHiddenMainTurns,
     setMainComposerHidden,
     setNativeGenerationControlsHidden,
-    setPendingInputBlocked,
-    afterPendingResponseCaptured,
+    syncPendingResponseState,
+    completePendingResponse,
     submitPrompt
   };
 })();

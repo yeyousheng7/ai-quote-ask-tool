@@ -10,7 +10,7 @@
   - `src/content.js` owns runtime state, thread lifecycle, persistence timing, and provider-neutral send/capture orchestration.
   - `src/provider.js` owns active page provider resolution.
   - `src/providers/*.js` own provider registration and provider metadata. Add new AI sites here rather than adding host-specific branches to `src/content.js`.
-  - `src/providers/*-dom.js` own page-specific DOM drivers: DOM queries, selection validation, quote anchoring, mark rendering, selection-action attachment, main composer operations, assistant message extraction, and main-page hiding for one provider.
+  - `src/providers/*-dom.js` own page-specific DOM drivers: DOM queries, selection validation, quote anchoring, mark rendering, selection-action attachment, main composer operations, assistant message extraction, provider-specific pending-response side effects, and main-page hiding for one provider.
   - `src/sidebar.js` owns plugin UI rendering and panel interactions. It may render a generic floating selection action, but provider-specific toolbar attachment belongs in the provider DOM driver.
   - `src/storage.js` owns provider-aware persisted thread data shape and migration/reset policy.
   - `src/sanitize.js` owns shared safe HTML rendering for saved assistant replies. Do not duplicate sanitizer allowlists in page-specific modules.

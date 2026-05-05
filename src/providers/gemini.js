@@ -53,8 +53,8 @@
       syncHiddenMainTurns: CGQAGeminiDom.syncHiddenMainTurns,
       setMainComposerHidden: CGQAGeminiDom.setMainComposerHidden,
       setNativeGenerationControlsHidden: CGQAGeminiDom.setNativeGenerationControlsHidden,
-      setPendingInputBlocked: CGQAGeminiDom.setPendingInputBlocked,
-      afterPendingResponseCaptured: CGQAGeminiDom.afterPendingResponseCaptured,
+      syncPendingResponseState: CGQAGeminiDom.syncPendingResponseState,
+      completePendingResponse: CGQAGeminiDom.completePendingResponse,
       submitPrompt: CGQAGeminiDom.submitPrompt
     };
   }

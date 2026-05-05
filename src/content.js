@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.1-gemini-input-guard";
+  const CONTENT_VERSION = "0.7.2-provider-pending-lifecycle";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -639,10 +639,8 @@
       contentFormat: "text"
     };
     thread.messages.push(userMessage, assistantMessage);
-    await saveAndRenderThread(thread);
-    syncPageDecorations();
-
     state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
+    await saveAndRenderThread(thread);
     syncPageDecorations();
     startPendingCaptureWatcher();
 
@@ -724,18 +722,22 @@
     provider.setNativeGenerationControlsHidden(Boolean(state.activeThreadId));
   }
 
-  function syncPendingInputGuard() {
-    if (!provider.setPendingInputBlocked) {
+  function syncProviderPendingResponseState() {
+    if (!provider.syncPendingResponseState) {
       return;
     }
-    provider.setPendingInputBlocked(Boolean(state.pendingResponse));
+    provider.syncPendingResponseState({
+      active: Boolean(state.pendingResponse),
+      threadId: state.pendingResponse && state.pendingResponse.threadId || "",
+      promptToken: state.pendingResponse && state.pendingResponse.promptToken || ""
+    });
   }
 
   function syncPageDecorations() {
     syncMainChatVisibility();
     syncMainComposerVisibility();
     syncNativeGenerationControlsVisibility();
-    syncPendingInputGuard();
+    syncProviderPendingResponseState();
   }
 
   function createResponseTracker(threadId, promptToken) {
@@ -830,18 +832,18 @@
       const completedResponse = state.pendingResponse;
       stopPendingCaptureWatcher();
       await saveAndRenderThread(thread);
-      await runProviderPendingResponseCleanup(completedResponse);
+      await completeProviderPendingResponse(completedResponse);
       state.pendingResponse = null;
       syncPageDecorations();
     }, RESPONSE_STABLE_DELAY_MS);
   }
 
-  async function runProviderPendingResponseCleanup(responseTracker) {
-    if (!provider.afterPendingResponseCaptured || !responseTracker) {
+  async function completeProviderPendingResponse(responseTracker) {
+    if (!provider.completePendingResponse || !responseTracker) {
       return;
     }
     try {
-      await provider.afterPendingResponseCaptured({
+      await provider.completePendingResponse({
         threadId: responseTracker.threadId,
         promptToken: responseTracker.promptToken
       });
@@ -1083,8 +1085,8 @@
     if (provider && provider.setNativeGenerationControlsHidden) {
       provider.setNativeGenerationControlsHidden(false);
     }
-    if (provider && provider.setPendingInputBlocked) {
-      provider.setPendingInputBlocked(false);
+    if (provider && provider.syncPendingResponseState) {
+      provider.syncPendingResponseState({ active: false, threadId: "", promptToken: "" });
     }
   }
 
