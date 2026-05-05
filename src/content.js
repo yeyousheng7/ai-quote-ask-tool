@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.0-scoped-watchers";
+  const CONTENT_VERSION = "0.7.1-gemini-input-guard";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -643,6 +643,7 @@
     syncPageDecorations();
 
     state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
+    syncPageDecorations();
     startPendingCaptureWatcher();
 
     try {
@@ -723,10 +724,18 @@
     provider.setNativeGenerationControlsHidden(Boolean(state.activeThreadId));
   }
 
+  function syncPendingInputGuard() {
+    if (!provider.setPendingInputBlocked) {
+      return;
+    }
+    provider.setPendingInputBlocked(Boolean(state.pendingResponse));
+  }
+
   function syncPageDecorations() {
     syncMainChatVisibility();
     syncMainComposerVisibility();
     syncNativeGenerationControlsVisibility();
+    syncPendingInputGuard();
   }
 
   function createResponseTracker(threadId, promptToken) {
@@ -818,11 +827,27 @@
       generating.html = latest && latest.html || candidate.html || "";
       generating.contentFormat = generating.html ? "html" : "text";
       generating.status = "completed";
-      state.pendingResponse = null;
+      const completedResponse = state.pendingResponse;
       stopPendingCaptureWatcher();
       await saveAndRenderThread(thread);
+      await runProviderPendingResponseCleanup(completedResponse);
+      state.pendingResponse = null;
       syncPageDecorations();
     }, RESPONSE_STABLE_DELAY_MS);
+  }
+
+  async function runProviderPendingResponseCleanup(responseTracker) {
+    if (!provider.afterPendingResponseCaptured || !responseTracker) {
+      return;
+    }
+    try {
+      await provider.afterPendingResponseCaptured({
+        threadId: responseTracker.threadId,
+        promptToken: responseTracker.promptToken
+      });
+    } catch (error) {
+      console.warn("[CGQA] provider pending response cleanup failed", error);
+    }
   }
 
   function findPendingAssistantCandidate(thread) {
@@ -1057,6 +1082,9 @@
     }
     if (provider && provider.setNativeGenerationControlsHidden) {
       provider.setNativeGenerationControlsHidden(false);
+    }
+    if (provider && provider.setPendingInputBlocked) {
+      provider.setPendingInputBlocked(false);
     }
   }
 

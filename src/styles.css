@@ -849,6 +849,25 @@
   display: none !important;
 }
 
+.cgqa-gemini-input-blocker {
+  position: fixed;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 28px;
+  color: var(--cgqa-muted);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--cgqa-border);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(2px);
+  pointer-events: auto;
+  user-select: none;
+  cursor: not-allowed;
+  font-size: 14px;
+}
+
 @media (prefers-color-scheme: dark) {
   .cgqa-root {
     color: #e5e7eb;

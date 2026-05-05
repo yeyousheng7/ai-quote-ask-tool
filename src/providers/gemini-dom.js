@@ -6,6 +6,7 @@
   const HIDDEN_TURN_CLASS = "cgqa-main-turn-hidden";
   const HIDDEN_COMPOSER_CLASS = "cgqa-composer-hidden";
   const HIDDEN_NATIVE_CONTROL_CLASS = "cgqa-native-control-hidden";
+  const INPUT_BLOCKER_CLASS = "cgqa-gemini-input-blocker";
   const TURN_SELECTOR = ".conversation-container";
   const MARKDOWN_SELECTOR = [
     "model-response message-content .markdown",
@@ -26,6 +27,8 @@
     "[role='button']"
   ].join(",");
   const COMPLEX_SELECTOR = ".katex, math, pre, code-block, table-block";
+  let inputBlocker = null;
+  let inputBlockerCleanup = null;
 
   function getConversationId() {
     const match = location.pathname.match(/\/app\/([^/?#]+)/);
@@ -826,6 +829,65 @@
     getNativeGenerationControlCandidates().forEach(hideNativeGenerationControl);
   }
 
+  function setPendingInputBlocked(blocked) {
+    if (!blocked) {
+      removeInputBlocker();
+      return;
+    }
+    ensureInputBlocker();
+    updateInputBlocker();
+  }
+
+  function ensureInputBlocker() {
+    if (!inputBlocker) {
+      inputBlocker = document.createElement("div");
+      inputBlocker.className = INPUT_BLOCKER_CLASS;
+      inputBlocker.setAttribute("aria-hidden", "true");
+      inputBlocker.textContent = "Gemini 正在回复，暂时锁定主输入";
+      document.body.append(inputBlocker);
+    }
+    if (!inputBlockerCleanup) {
+      const update = () => updateInputBlocker();
+      window.addEventListener("resize", update, true);
+      window.addEventListener("scroll", update, true);
+      inputBlockerCleanup = () => {
+        window.removeEventListener("resize", update, true);
+        window.removeEventListener("scroll", update, true);
+      };
+    }
+  }
+
+  function updateInputBlocker() {
+    if (!inputBlocker) {
+      return;
+    }
+    const target = getComposerHideContainer();
+    if (!target || target.classList.contains(HIDDEN_COMPOSER_CLASS)) {
+      inputBlocker.hidden = true;
+      return;
+    }
+
+    const rect = target.getBoundingClientRect();
+    inputBlocker.hidden = rect.width <= 0 || rect.height <= 0;
+    Object.assign(inputBlocker.style, {
+      left: `${Math.max(0, rect.left)}px`,
+      top: `${Math.max(0, rect.top)}px`,
+      width: `${Math.max(0, rect.width)}px`,
+      height: `${Math.max(0, rect.height)}px`
+    });
+  }
+
+  function removeInputBlocker() {
+    if (inputBlockerCleanup) {
+      inputBlockerCleanup();
+      inputBlockerCleanup = null;
+    }
+    if (inputBlocker) {
+      inputBlocker.remove();
+      inputBlocker = null;
+    }
+  }
+
   function getNativeGenerationControlCandidates() {
     return Array.from(document.querySelectorAll("button, [role='button']")).filter((node) => {
       if (node.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-toast")) {
@@ -932,6 +994,60 @@
     throw new Error("无法触发 Gemini 发送，请手动点击主输入框发送按钮。");
   }
 
+  async function afterPendingResponseCaptured() {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    clickResidualStopButton();
+    clearPromptText();
+    blurActiveElement();
+  }
+
+  function clickResidualStopButton() {
+    const button = findStopButton();
+    if (!button) {
+      return false;
+    }
+    clickElement(button);
+    return true;
+  }
+
+  function findStopButton() {
+    const composer = getComposerContainer() || document;
+    const preferred = composer.querySelector("button.send-button.stop[aria-label*='停止'], button.send-button.stop");
+    if (isStopButton(preferred)) {
+      return preferred;
+    }
+    return Array.from(composer.querySelectorAll("button")).find(isStopButton) || null;
+  }
+
+  function isStopButton(button) {
+    return Boolean(button
+      && !button.disabled
+      && button.getAttribute("aria-disabled") !== "true"
+      && /停止|stop/i.test(getNodeControlText(button)));
+  }
+
+  function clearPromptText() {
+    const editor = getPromptEditor();
+    if (!editor) {
+      return false;
+    }
+
+    editor.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    const deleted = document.execCommand && document.execCommand("delete", false);
+    if (!deleted || getPromptText()) {
+      editor.innerHTML = "<p><br></p>";
+    }
+    editor.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+    editor.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward", data: null }));
+    return true;
+  }
+
   function getUserTurnCount() {
     return getAllTurnRecords().filter((record) => record.role === "user").length;
   }
@@ -1023,6 +1139,8 @@
     syncHiddenMainTurns,
     setMainComposerHidden,
     setNativeGenerationControlsHidden,
+    setPendingInputBlocked,
+    afterPendingResponseCaptured,
     submitPrompt
   };
 })();
