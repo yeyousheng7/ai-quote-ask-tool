@@ -6,6 +6,9 @@
   const HIDDEN_TURN_CLASS = "cgqa-main-turn-hidden";
   const HIDDEN_COMPOSER_CLASS = "cgqa-composer-hidden";
   const HIDDEN_NATIVE_CONTROL_CLASS = "cgqa-native-control-hidden";
+  const ATTACHED_SELECTION_BUTTON_CLASS = "cgqa-selection-attached-button";
+  const ATTACHED_SELECTION_GROUP_CLASS = "cgqa-selection-button-group";
+  const OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS = 900;
   const BAD_SELECTION_SELECTOR = [
     ".cgqa-root",
     ".cgqa-selection-menu",
@@ -360,6 +363,99 @@
       complex,
       ...anchor
     };
+  }
+
+  function attachSelectionAction(button, context = {}) {
+    let timer = 0;
+    let attachedGroup = null;
+    const startedAt = Date.now();
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = 0;
+      }
+      if (attachedGroup) {
+        attachedGroup.classList.remove(ATTACHED_SELECTION_GROUP_CLASS);
+        attachedGroup.style.removeProperty("--cgqa-selection-toolbar-height");
+        attachedGroup = null;
+      }
+    };
+
+    const tryAttach = () => {
+      const target = findOfficialSelectionButtonGroup();
+      if (target) {
+        if (attachedGroup && attachedGroup !== target.group) {
+          attachedGroup.classList.remove(ATTACHED_SELECTION_GROUP_CLASS);
+          attachedGroup.style.removeProperty("--cgqa-selection-toolbar-height");
+        }
+        attachedGroup = target.group;
+        prepareOfficialSelectionGroup(target.group, target.officialButton);
+        if (button.parentElement !== target.group) {
+          target.group.append(button);
+        }
+      }
+
+      if (Date.now() - startedAt >= OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS) {
+        if (!button.isConnected && hasActiveTextSelection() && typeof context.showToast === "function") {
+          context.showToast("未找到 ChatGPT 选择工具条，请重新选择正文内容。");
+        }
+        return;
+      }
+
+      timer = window.setTimeout(tryAttach, 50);
+    };
+
+    tryAttach();
+    return cleanup;
+  }
+
+  function findOfficialSelectionButtonGroup() {
+    const buttons = Array.from(document.querySelectorAll("button")).filter((button) => {
+      if (
+        button.closest(".cgqa-root, .cgqa-selection-menu")
+        || button.classList.contains(ATTACHED_SELECTION_BUTTON_CLASS)
+        || button.classList.contains("cgqa-quote-chip")
+      ) {
+        return false;
+      }
+      const text = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.trim();
+      return /询问\s*ChatGPT|Ask\s*ChatGPT/i.test(text)
+        || (isInsideOfficialSelectionToolbar(button) && /引用|Quote/i.test(text));
+    });
+    const officialButton = buttons.find(isVisibleElement);
+    if (!officialButton || !officialButton.parentElement) {
+      return null;
+    }
+    return {
+      group: officialButton.parentElement,
+      officialButton
+    };
+  }
+
+  function prepareOfficialSelectionGroup(group, officialButton) {
+    const buttonHeight = Math.round(officialButton.getBoundingClientRect().height);
+    group.classList.add(ATTACHED_SELECTION_GROUP_CLASS);
+    if (buttonHeight > 0) {
+      group.style.setProperty("--cgqa-selection-toolbar-height", `${buttonHeight}px`);
+    }
+  }
+
+  function isInsideOfficialSelectionToolbar(button) {
+    return Boolean(
+      button.closest(".fixed.select-none")
+      || button.parentElement && /\bshadow-long\b/.test(button.parentElement.className || "")
+    );
+  }
+
+  function isVisibleElement(element) {
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function hasActiveTextSelection() {
+    const selection = window.getSelection();
+    return Boolean(selection && !selection.isCollapsed && selection.toString().trim());
   }
 
   function findTextPosition(root, offset) {
@@ -1264,6 +1360,7 @@
 
   globalThis.CGQAChatGPTDom = {
     validateSelection,
+    attachSelectionAction,
     getConversationId,
     getTurnId,
     getMessageId,

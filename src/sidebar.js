@@ -6,12 +6,10 @@
   const PANEL_DEFAULT_RIGHT = 28;
   const PANEL_DEFAULT_TOP = 140;
   const INPUT_MAX_HEIGHT = 96;
-  const OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS = 900;
   const ATTACHED_SELECTION_BUTTON_CLASS = "cgqa-selection-attached-button";
-  const ATTACHED_SELECTION_GROUP_CLASS = "cgqa-selection-button-group";
 
   let panelPosition = readPanelPosition();
-  let selectionAttachTimer = 0;
+  let selectionCleanup = null;
 
   function createElement(tag, className, text) {
     const element = document.createElement(tag);
@@ -627,10 +625,22 @@
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   }
 
-  function showSelectionMenu(_rect, onAnnotate) {
+  function showSelectionMenu(rect, onAnnotate, options = {}) {
     hideSelectionMenu();
     const button = createSelectionButton(onAnnotate);
-    attachSelectionButtonToOfficialToolbar(button);
+    const context = {
+      rect,
+      onFallback: () => showFloatingSelectionButton(rect, button),
+      showToast
+    };
+
+    if (typeof options.attachSelectionAction === "function") {
+      const cleanup = options.attachSelectionAction(button, context);
+      selectionCleanup = typeof cleanup === "function" ? cleanup : null;
+      return;
+    }
+
+    showFloatingSelectionButton(rect, button);
   }
 
   function createSelectionButton(onAnnotate) {
@@ -652,86 +662,42 @@
     return button;
   }
 
-  function attachSelectionButtonToOfficialToolbar(button) {
-    const startedAt = Date.now();
-    const tryAttach = () => {
-      const target = findOfficialSelectionButtonGroup();
-      if (target) {
-        prepareOfficialSelectionGroup(target.group, target.officialButton);
-        if (button.parentElement !== target.group) {
-          target.group.append(button);
-        }
-      }
+  function showFloatingSelectionButton(rect, button) {
+    const menu = createElement("div", "cgqa-selection-menu cgqa-floating-selection-menu");
+    button.classList.add("cgqa-selection-floating-button");
+    menu.append(button);
+    appendOverlayRoot(menu);
 
-      if (Date.now() - startedAt >= OFFICIAL_SELECTION_ATTACH_TIMEOUT_MS) {
-        if (!button.isConnected && hasActiveTextSelection()) {
-          showToast("未找到 ChatGPT 选择工具条，请重新选择正文内容。");
-        }
-        return;
-      }
-
-      selectionAttachTimer = window.setTimeout(tryAttach, 50);
-    };
-
-    tryAttach();
+    const position = getFloatingSelectionMenuPosition(rect, menu);
+    menu.style.top = `${position.top}px`;
+    menu.style.left = `${position.left}px`;
+    return menu;
   }
 
-  function findOfficialSelectionButtonGroup() {
-    const buttons = Array.from(document.querySelectorAll("button")).filter((button) => {
-      if (
-        button.closest(".cgqa-root, .cgqa-selection-menu")
-        || button.classList.contains(ATTACHED_SELECTION_BUTTON_CLASS)
-        || button.classList.contains("cgqa-quote-chip")
-      ) {
-        return false;
-      }
-      const text = `${button.getAttribute("aria-label") || ""} ${button.textContent || ""}`.trim();
-      return /询问\s*ChatGPT|Ask\s*ChatGPT/i.test(text)
-        || (isInsideOfficialSelectionToolbar(button) && /引用|Quote/i.test(text));
-    });
-    const officialButton = buttons.find(isVisibleElement);
-    if (!officialButton || !officialButton.parentElement) {
-      return null;
-    }
+  function getFloatingSelectionMenuPosition(rect, menu) {
+    const viewportMargin = 8;
+    const sourceRect = rect && Number.isFinite(rect.left) ? rect : {
+      left: window.innerWidth / 2,
+      right: window.innerWidth / 2,
+      top: window.innerHeight / 2,
+      bottom: window.innerHeight / 2
+    };
+    const top = window.scrollY + sourceRect.top - menu.offsetHeight - 8;
+    const fallbackTop = window.scrollY + sourceRect.bottom + 8;
+    const maxTop = window.scrollY + window.innerHeight - menu.offsetHeight - viewportMargin;
+    const maxLeft = window.scrollX + window.innerWidth - menu.offsetWidth - viewportMargin;
     return {
-      group: officialButton.parentElement,
-      officialButton
+      top: Math.max(viewportMargin, Math.min(top > window.scrollY ? top : fallbackTop, maxTop)),
+      left: Math.max(viewportMargin, Math.min(window.scrollX + sourceRect.left, maxLeft))
     };
-  }
-
-  function prepareOfficialSelectionGroup(group, officialButton) {
-    const buttonHeight = Math.round(officialButton.getBoundingClientRect().height);
-    group.classList.add(ATTACHED_SELECTION_GROUP_CLASS);
-    if (buttonHeight > 0) {
-      group.style.setProperty("--cgqa-selection-toolbar-height", `${buttonHeight}px`);
-    }
-  }
-
-  function isInsideOfficialSelectionToolbar(button) {
-    return Boolean(
-      button.closest(".fixed.select-none")
-      || button.parentElement && /\bshadow-long\b/.test(button.parentElement.className || "")
-    );
-  }
-
-  function isVisibleElement(element) {
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  }
-
-  function hasActiveTextSelection() {
-    const selection = window.getSelection();
-    return Boolean(selection && !selection.isCollapsed && selection.toString().trim());
   }
 
   function hideSelectionMenu() {
-    clearTimeout(selectionAttachTimer);
-    selectionAttachTimer = 0;
+    if (selectionCleanup) {
+      selectionCleanup();
+      selectionCleanup = null;
+    }
     document.querySelectorAll(`.${ATTACHED_SELECTION_BUTTON_CLASS}`).forEach((node) => node.remove());
-    document.querySelectorAll(`.${ATTACHED_SELECTION_GROUP_CLASS}`).forEach((node) => {
-      node.classList.remove(ATTACHED_SELECTION_GROUP_CLASS);
-      node.style.removeProperty("--cgqa-selection-toolbar-height");
-    });
     document.querySelectorAll(".cgqa-selection-menu").forEach((node) => node.remove());
   }
 

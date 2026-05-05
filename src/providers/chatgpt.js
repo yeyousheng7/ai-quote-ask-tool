@@ -40,6 +40,7 @@
       getConversationId: CGQAChatGPTDom.getConversationId,
       getConversationMeta,
       validateSelection: CGQAChatGPTDom.validateSelection,
+      attachSelectionAction: CGQAChatGPTDom.attachSelectionAction,
       getTurnId: CGQAChatGPTDom.getTurnId,
       getMessageId: CGQAChatGPTDom.getMessageId,
       renderThreadMark: CGQAChatGPTDom.renderThreadMark,

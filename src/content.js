@@ -290,7 +290,9 @@
       }
 
       state.pendingSelection = result;
-      CGQASidebar.showSelectionMenu(result.range.getBoundingClientRect(), createThreadFromSelection);
+      CGQASidebar.showSelectionMenu(result.range.getBoundingClientRect(), createThreadFromSelection, {
+        attachSelectionAction: provider.attachSelectionAction
+      });
     }, 0);
   }
 

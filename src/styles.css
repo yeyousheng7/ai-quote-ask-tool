@@ -657,6 +657,15 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.cgqa-floating-selection-menu {
+  padding: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
 .cgqa-selection-button-group {
   align-items: stretch !important;
 }
@@ -707,6 +716,20 @@
 
 .cgqa-selection-label {
   white-space: nowrap;
+}
+
+.cgqa-selection-floating-button {
+  height: 38px;
+  min-width: 82px;
+  color: var(--cgqa-accent-strong);
+  background: rgba(255, 255, 255, 0.98);
+  border-left: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.cgqa-selection-floating-button:hover {
+  background: #f3f4f6;
 }
 
 .cgqa-thread-choice-menu {
