@@ -718,17 +718,19 @@
   white-space: nowrap;
 }
 
-.cgqa-selection-floating-button {
+.cgqa-floating-selection-menu .cgqa-selection-floating-button {
   height: 38px;
   min-width: 82px;
   color: var(--cgqa-accent-strong);
   background: rgba(255, 255, 255, 0.98);
   border-left: 0;
   border-radius: 12px;
+  padding: 0 13px;
   box-shadow: none;
 }
 
-.cgqa-selection-floating-button:hover {
+.cgqa-floating-selection-menu .cgqa-selection-floating-button:hover {
+  color: var(--cgqa-accent-strong);
   background: #f3f4f6;
 }
 
