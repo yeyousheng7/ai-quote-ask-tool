@@ -777,6 +777,7 @@
   border-bottom: 1px dashed var(--cgqa-accent);
   border-radius: 6px;
   padding: 0 2px;
+  cursor: pointer;
   transition: background-color 160ms ease, box-shadow 160ms ease;
 }
 

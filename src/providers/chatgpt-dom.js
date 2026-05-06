@@ -17,7 +17,8 @@
     "[aria-label='回复操作']",
     "[aria-label='你的消息操作']"
   ].join(",");
-  const COMPLEX_SELECTOR = ".katex, math, pre, table, .cm-editor, .cm-content";
+  const CODE_TEXT_SELECTOR = "pre, .cm-editor, .cm-content";
+  const COMPLEX_SELECTOR = `.katex, math, table, ${CODE_TEXT_SELECTOR}`;
   const SURFACE_MARK_CLASS = "cgqa-quote-mark-surface";
   const TURN_SELECTOR = [
     "section[data-turn]",
@@ -128,6 +129,20 @@
   function isInsideComplexContent(node) {
     const element = node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
     return Boolean(element && element.closest(COMPLEX_SELECTOR));
+  }
+
+  function getClosestElement(node, selector) {
+    const element = node && node.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+    return element ? element.closest(selector) : null;
+  }
+
+  function getSharedCodeTextContainer(markdown, range) {
+    const startBlock = getClosestElement(range.startContainer, CODE_TEXT_SELECTOR);
+    const endBlock = getClosestElement(range.endContainer, CODE_TEXT_SELECTOR);
+    if (!startBlock || !endBlock || startBlock !== endBlock || !markdown.contains(startBlock)) {
+      return null;
+    }
+    return startBlock;
   }
 
   function getInlineCodeAncestor(node) {
@@ -637,7 +652,8 @@
 
     try {
       for (let index = slices.length - 1; index >= 0; index -= 1) {
-        wrapTextSlice(slices[index], thread, index === slices.length - 1, options);
+        const includeChip = options.includeChip !== false && index === slices.length - 1;
+        wrapTextSlice(slices[index], thread, includeChip, options);
       }
       return true;
     } catch (_error) {
@@ -712,6 +728,17 @@
     return true;
   }
 
+  function markComplexContent(markdown, range, thread, options = {}) {
+    if (getSharedCodeTextContainer(markdown, range)) {
+      const marked = wrapRange(markdown, range, thread, { ...options, includeChip: false });
+      if (marked) {
+        return true;
+      }
+    }
+
+    return markBlock(markdown, range, thread, options);
+  }
+
   function renderThreadMark(thread) {
     const turn = findTurnForThread(thread);
     const markdown = getMarkdownNode(turn);
@@ -725,7 +752,7 @@
     }
 
     if (isInsideComplexContent(range.startContainer) || isInsideComplexContent(range.endContainer)) {
-      return markBlock(markdown, range, thread);
+      return markComplexContent(markdown, range, thread);
     }
 
     return wrapRange(markdown, range, thread);
@@ -737,7 +764,7 @@
     }
 
     if (isInsideComplexContent(range.startContainer) || isInsideComplexContent(range.endContainer)) {
-      return markBlock(markdown, range, thread, { draft: true });
+      return markComplexContent(markdown, range, thread, { draft: true });
     }
 
     return wrapRange(markdown, range, thread, { draft: true });
