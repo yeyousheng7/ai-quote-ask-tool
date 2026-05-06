@@ -43,7 +43,7 @@
 
     const message = element.closest("[data-message-author-role]");
     if (message) {
-      return message.closest("section[data-turn], [data-testid^='conversation-turn-']") || message;
+      return getTurnContainerForMessageNode(message);
     }
 
     return element.closest(TURN_SELECTOR);
@@ -102,7 +102,7 @@
     if (!message) {
       return null;
     }
-    return message.querySelector(".markdown.prose, .markdown-new-styling, .markdown") || message;
+    return message.querySelector(".markdown.prose, .markdown-new-styling, .markdown");
   }
 
   function getMessageId(turn) {
@@ -808,7 +808,7 @@
     const message = getMessageNodeByRole(turn, role) || turn;
     if (role === "assistant") {
       const markdown = getMarkdownNode(turn);
-      return markdown ? getReadableText(markdown).trim() : getReadableText(message).trim();
+      return markdown ? getReadableText(markdown).trim() : "";
     }
     return getReadableText(message).trim();
   }
@@ -843,7 +843,14 @@
   }
 
   function getTurnContainerForMessageNode(node) {
-    return node.closest("section[data-turn], section[data-testid^='conversation-turn-'], [data-testid^='conversation-turn-']")
+    return node.closest([
+      "section[data-turn]",
+      "section[data-testid^='conversation-turn-']",
+      "[data-testid^='conversation-turn-']",
+      ".agent-turn",
+      ".user-turn",
+      "[class*='group/turn-messages']"
+    ].join(","))
       || node;
   }
 
@@ -875,7 +882,7 @@
         html,
         contentFormat: html ? "html" : "text"
       };
-    }).filter((record) => record.messageId || record.text);
+    }).filter((record) => record.text);
   }
 
   function syncHiddenMainTurns(targets) {
@@ -940,7 +947,7 @@
   function findNextAssistantRecord(records, startIndex) {
     for (let index = startIndex + 1; index < records.length; index += 1) {
       const record = records[index];
-      if (record.role === "assistant") {
+      if (record.role === "assistant" && record.text) {
         return record;
       }
       if (record.role === "user") {

@@ -1016,6 +1016,7 @@
     return /^正在思考[.。…]*$/.test(compact)
       || /^思考中[.。…]*$/.test(compact)
       || /^已思考\d*(秒|s)?$/.test(compact)
+      || /^chatgpt(说|says)?[:：]?$/.test(compact)
       || /^thoughtfor(acoupleof)?\d*(second|seconds|s)?$/.test(compact)
       || /^thinking[.。…]*$/.test(compact)
       || /^reasoning[.。…]*$/.test(compact);
