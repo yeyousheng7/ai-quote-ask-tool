@@ -807,6 +807,19 @@
       || composer;
   }
 
+  function getScrollContainer() {
+    const chatHistoryScroller = Array.from(document.querySelectorAll("infinite-scroller.chat-history")).find(isScrollableElement);
+    return chatHistoryScroller || document.scrollingElement || document.documentElement;
+  }
+
+  function isScrollableElement(element) {
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) {
+      return false;
+    }
+    const style = getComputedStyle(element);
+    return /(auto|scroll)/.test(style.overflowY) && element.scrollHeight > element.clientHeight + 8;
+  }
+
   function setMainComposerHidden(hidden) {
     const composer = hidden ? getComposerHideContainer() : null;
     document.querySelectorAll(`.${HIDDEN_COMPOSER_CLASS}`).forEach((node) => {
@@ -1079,6 +1092,7 @@
     setNativeGenerationControlsHidden,
     syncPendingResponseState,
     completePendingResponse,
+    getScrollContainer,
     submitPrompt
   };
 })();

@@ -55,6 +55,7 @@
       setNativeGenerationControlsHidden: CGQAGeminiDom.setNativeGenerationControlsHidden,
       syncPendingResponseState: CGQAGeminiDom.syncPendingResponseState,
       completePendingResponse: CGQAGeminiDom.completePendingResponse,
+      getScrollContainer: CGQAGeminiDom.getScrollContainer,
       submitPrompt: CGQAGeminiDom.submitPrompt
     };
   }
