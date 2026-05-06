@@ -2,6 +2,7 @@
   "use strict";
 
   const USER_SCROLL_EVENTS = ["wheel", "touchmove", "keydown"];
+  const USER_SCROLL_IDLE_MS = 900;
   const SCROLL_KEYS = new Set([
     "ArrowDown",
     "ArrowUp",
@@ -15,15 +16,16 @@
 
   function create() {
     let active = false;
-    let userReleased = false;
+    let userScrolling = false;
     let lockedX = 0;
     let lockedY = 0;
     let restoreTimer = 0;
+    let relockTimer = 0;
 
     function lock() {
       unlock();
       active = true;
-      userReleased = false;
+      userScrolling = false;
       lockedX = window.scrollX;
       lockedY = window.scrollY;
       USER_SCROLL_EVENTS.forEach((type) => window.addEventListener(type, handleUserScrollIntent, {
@@ -38,8 +40,12 @@
         clearTimeout(restoreTimer);
         restoreTimer = 0;
       }
+      if (relockTimer) {
+        clearTimeout(relockTimer);
+        relockTimer = 0;
+      }
       active = false;
-      userReleased = false;
+      userScrolling = false;
       USER_SCROLL_EVENTS.forEach((type) => window.removeEventListener(type, handleUserScrollIntent, true));
       window.removeEventListener("scroll", handleScroll, true);
     }
@@ -51,11 +57,11 @@
       if (event.type === "keydown" && !SCROLL_KEYS.has(event.key)) {
         return;
       }
-      userReleased = true;
+      pauseForUserScroll();
     }
 
     function handleScroll() {
-      if (!active || userReleased) {
+      if (!active || userScrolling) {
         return;
       }
       if (restoreTimer) {
@@ -63,13 +69,33 @@
       }
       restoreTimer = setTimeout(() => {
         restoreTimer = 0;
-        if (!active || userReleased) {
+        if (!active || userScrolling) {
           return;
         }
         if (window.scrollX !== lockedX || window.scrollY !== lockedY) {
           window.scrollTo(lockedX, lockedY);
         }
       }, 0);
+    }
+
+    function pauseForUserScroll() {
+      userScrolling = true;
+      if (restoreTimer) {
+        clearTimeout(restoreTimer);
+        restoreTimer = 0;
+      }
+      if (relockTimer) {
+        clearTimeout(relockTimer);
+      }
+      relockTimer = setTimeout(() => {
+        relockTimer = 0;
+        if (!active) {
+          return;
+        }
+        lockedX = window.scrollX;
+        lockedY = window.scrollY;
+        userScrolling = false;
+      }, USER_SCROLL_IDLE_MS);
     }
 
     return {
