@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.2-provider-pending-lifecycle";
+  const CONTENT_VERSION = "0.7.3-scroll-lock-before-send";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -66,6 +66,7 @@
     applyTheme(state.theme);
     sidebar = CGQASidebar.buildSidebar({
       onClose: closeSidebar,
+      onBeforeSend: lockPendingScroll,
       onSend: sendQuestion,
       onDeleteThread: deleteActiveThread,
       getAssistantLabel: () => state.providerLabel,
@@ -272,9 +273,7 @@
     state.pendingSelection = null;
     state.pendingResponse = null;
     stopPendingCaptureWatcher();
-    if (pendingScrollLock) {
-      pendingScrollLock.unlock();
-    }
+    unlockPendingScroll();
     clearPendingStableTimer();
   }
 
@@ -626,12 +625,16 @@
     const question = (rawQuestion || "").trim();
     const thread = getThread(state.activeThreadId);
     if (!thread || !question) {
+      unlockPendingScroll();
       return;
     }
     if (state.pendingResponse || hasGeneratingMessage(thread)) {
       CGQASidebar.showToast("上一条追问仍在生成中，请稍后再发。");
       renderSavedThread(thread);
       sidebar.focusInput();
+      if (!state.pendingResponse) {
+        unlockPendingScroll();
+      }
       return;
     }
 
@@ -653,24 +656,36 @@
     };
     thread.messages.push(userMessage, assistantMessage);
     state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
-    pendingScrollLock.lock();
-    await saveAndRenderThread(thread);
-    syncPageDecorations();
-    startPendingCaptureWatcher();
+    lockPendingScroll();
 
     try {
+      await saveAndRenderThread(thread);
+      syncPageDecorations();
+      startPendingCaptureWatcher();
       await provider.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
       syncPageDecorations();
     } catch (error) {
       state.pendingResponse = null;
       stopPendingCaptureWatcher();
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       clearPendingStableTimer();
       assistantMessage.content = error.message || "发送失败。";
       assistantMessage.status = "failed";
       await saveAndRenderThread(thread);
       syncPageDecorations();
       CGQASidebar.showToast(assistantMessage.content);
+    }
+  }
+
+  function lockPendingScroll() {
+    if (pendingScrollLock) {
+      pendingScrollLock.lock();
+    }
+  }
+
+  function unlockPendingScroll() {
+    if (pendingScrollLock) {
+      pendingScrollLock.unlock();
     }
   }
 
@@ -779,7 +794,7 @@
     if (!thread) {
       state.pendingResponse = null;
       stopPendingCaptureWatcher();
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       clearPendingStableTimer();
       return;
     }
@@ -790,7 +805,7 @@
     if (!generating) {
       state.pendingResponse = null;
       stopPendingCaptureWatcher();
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       clearPendingStableTimer();
       return;
     }
@@ -800,7 +815,7 @@
       generating.status = "failed";
       state.pendingResponse = null;
       stopPendingCaptureWatcher();
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       clearPendingStableTimer();
       saveAndRenderThread(thread).then(syncPageDecorations).catch((error) => {
         console.error("[CGQA] save timeout state failed", error);
@@ -852,7 +867,7 @@
       await saveAndRenderThread(thread);
       await completeProviderPendingResponse(completedResponse);
       state.pendingResponse = null;
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       syncPageDecorations();
     }, RESPONSE_STABLE_DELAY_MS);
   }
@@ -1043,7 +1058,7 @@
     if (state.pendingResponse && state.pendingResponse.threadId === threadId) {
       state.pendingResponse = null;
       stopPendingCaptureWatcher();
-      pendingScrollLock.unlock();
+      unlockPendingScroll();
       clearPendingStableTimer();
     }
     await CGQAStorage.deleteThread(getConversationRef(), threadId);
@@ -1090,9 +1105,7 @@
     clearRestoreTimers();
     clearPendingStableTimer();
     stopPendingCaptureWatcher();
-    if (pendingScrollLock) {
-      pendingScrollLock.unlock();
-    }
+    unlockPendingScroll();
     state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
     CGQASidebar.hideSelectionMenu();
     if (sidebar && typeof sidebar.destroy === "function") {

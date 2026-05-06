@@ -188,6 +188,9 @@
         updateSendState(input, send, inputDisabled);
         return;
       }
+      if (callbacks.onBeforeSend) {
+        callbacks.onBeforeSend();
+      }
       send.disabled = true;
       input.disabled = true;
       callbacks.onSend(input.value);
