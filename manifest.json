@@ -10,7 +10,11 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*", "https://gemini.google.com/*"],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "https://gemini.google.com/app/*"
+      ],
       "js": [
         "src/theme.js",
         "src/storage.js",

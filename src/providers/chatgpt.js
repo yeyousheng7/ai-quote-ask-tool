@@ -5,8 +5,16 @@
   const PROVIDER_LABEL = "ChatGPT";
 
   function matchesLocation(locationObject = location) {
-    return /(^|\.)chatgpt\.com$/i.test(locationObject.hostname)
-      || /(^|\.)chat\.openai\.com$/i.test(locationObject.hostname);
+    return isChatGPTHost(locationObject.hostname) && isSupportedConversationPath(locationObject.pathname);
+  }
+
+  function isChatGPTHost(hostname) {
+    return /(^|\.)chatgpt\.com$/i.test(hostname)
+      || /(^|\.)chat\.openai\.com$/i.test(hostname);
+  }
+
+  function isSupportedConversationPath(pathname) {
+    return /^\/c(?:\/|$)/.test(pathname) || /^\/g(?:\/|$)/.test(pathname);
   }
 
   function getConversationMeta() {

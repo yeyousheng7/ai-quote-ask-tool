@@ -30,8 +30,17 @@
     isTargetHidden: (target) => target.classList.contains(HIDDEN_COMPOSER_CLASS)
   });
   function getConversationId() {
-    const match = location.pathname.match(/\/c\/([^/?#]+)/);
-    return match ? match[1] : "new-chat";
+    const chatMatch = location.pathname.match(/^\/c\/([^/?#]+)/);
+    if (chatMatch) {
+      return chatMatch[1];
+    }
+
+    const gMatch = location.pathname.match(/^\/g\/(.+)/);
+    if (gMatch) {
+      return `g/${gMatch[1].replace(/\/$/, "")}`;
+    }
+
+    return "new-chat";
   }
 
   function getTurn(node) {

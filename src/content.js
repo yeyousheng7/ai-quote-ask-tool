@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.4-provider-scroll-lock-target";
+  const CONTENT_VERSION = "0.7.5-runtime-route-gate";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -26,6 +26,7 @@
     pendingCaptureTimer: 0,
     pendingCaptureMutationTimer: 0,
     pendingStableTimer: 0,
+    active: false,
     creatingThread: false,
     loadingConversation: false,
     restoring: false,
@@ -34,7 +35,8 @@
       customPrompt: ""
     },
     theme: "green",
-    cleanupTasks: []
+    cleanupTasks: [],
+    activeCleanupTasks: []
   };
 
   const RESPONSE_STABLE_DELAY_MS = 1400;
@@ -55,10 +57,14 @@
   }
 
   async function init() {
-    provider = getPageProvider();
-    if (!provider) {
-      return;
-    }
+    bindNavigationEvents();
+    await reconcileLocation();
+  }
+
+  async function activateProvider(nextProvider) {
+    provider = nextProvider;
+    globalThis.CGQAProvider = provider;
+    state.active = true;
     pendingScrollLock = CGQAScrollLock.create({
       getTarget: () => provider && provider.getScrollContainer ? provider.getScrollContainer() : null
     });
@@ -85,11 +91,10 @@
   }
 
   function getPageProvider() {
-    if (!globalThis.CGQAProvider) {
-      console.warn("[CGQA] page provider is not available");
-      return null;
-    }
-    return globalThis.CGQAProvider;
+    const providers = Array.isArray(globalThis.CGQAProviders) ? globalThis.CGQAProviders : [];
+    return providers.find((item) => {
+      return item && typeof item.matchesLocation === "function" && item.matchesLocation(location);
+    }) || null;
   }
 
   function syncProviderState() {
@@ -172,10 +177,9 @@
   }
 
   function bindEvents() {
-    addEvent(document, "mouseup", handleMouseUp, true);
-    addEvent(document, "keydown", handleKeydown, true);
-    addEvent(document, "click", handleQuoteMarkClick, true);
-    bindNavigationEvents();
+    addActiveEvent(document, "mouseup", handleMouseUp, true);
+    addActiveEvent(document, "keydown", handleKeydown, true);
+    addActiveEvent(document, "click", handleQuoteMarkClick, true);
   }
 
   function bindSettingsEvents() {
@@ -192,12 +196,17 @@
       });
     };
     chrome.storage.onChanged.addListener(handleStorageChange);
-    state.cleanupTasks.push(() => chrome.storage.onChanged.removeListener(handleStorageChange));
+    state.activeCleanupTasks.push(() => chrome.storage.onChanged.removeListener(handleStorageChange));
   }
 
-  function addEvent(target, type, handler, options) {
+  function addRuntimeEvent(target, type, handler, options) {
     target.addEventListener(type, handler, options);
     state.cleanupTasks.push(() => target.removeEventListener(type, handler, options));
+  }
+
+  function addActiveEvent(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    state.activeCleanupTasks.push(() => target.removeEventListener(type, handler, options));
   }
 
   function handleKeydown(event) {
@@ -226,32 +235,53 @@
       history.pushState = originalPushState;
       history.replaceState = originalReplaceState;
     });
-    addEvent(window, "popstate", scheduleCheck);
-    addEvent(window, "pageshow", scheduleCheck);
-    addEvent(window, "focus", scheduleCheck);
-    addEvent(document, "click", scheduleCheck, true);
+    addRuntimeEvent(window, "popstate", scheduleCheck);
+    addRuntimeEvent(window, "pageshow", scheduleCheck);
+    addRuntimeEvent(window, "focus", scheduleCheck);
+    addRuntimeEvent(document, "click", scheduleCheck, true);
   }
 
   function scheduleConversationCheckBurst() {
     clearLocationCheckTimers();
     state.locationCheckTimers = LOCATION_CHECK_DELAYS_MS.map((delay) => {
-      return setTimeout(checkConversationChange, delay);
+      return setTimeout(() => {
+        reconcileLocation().catch((error) => {
+          console.error("[CGQA] reconcile location failed", error);
+        });
+      }, delay);
     });
   }
 
-  function checkConversationChange() {
+  async function reconcileLocation() {
     if (state.loadingConversation) {
       return;
     }
 
-    const nextConversationId = provider.getConversationId();
-    if (nextConversationId === state.conversationId) {
+    const nextProvider = getPageProvider();
+    if (!nextProvider) {
+      if (state.active) {
+        deactivateProvider();
+      }
       return;
     }
 
-    switchConversation().catch((error) => {
-      console.error("[CGQA] switch conversation failed", error);
-    });
+    if (!state.active || !provider || provider.id !== nextProvider.id) {
+      if (state.active) {
+        deactivateProvider();
+      }
+      state.loadingConversation = true;
+      try {
+        await activateProvider(nextProvider);
+      } finally {
+        state.loadingConversation = false;
+      }
+      return;
+    }
+
+    const nextConversationId = provider.getConversationId();
+    if (nextConversationId !== state.conversationId) {
+      await switchConversation();
+    }
   }
 
   async function switchConversation() {
@@ -271,6 +301,43 @@
     }
   }
 
+  function deactivateProvider() {
+    resetTransientState();
+    closeSidebar();
+    CGQASidebar.hideSelectionMenu();
+    if (provider && provider.clearRenderedMarks) {
+      provider.clearRenderedMarks();
+    }
+    if (provider && provider.syncHiddenMainTurns) {
+      provider.syncHiddenMainTurns([]);
+    }
+    if (provider && provider.setMainComposerHidden) {
+      provider.setMainComposerHidden(false);
+    }
+    if (provider && provider.setNativeGenerationControlsHidden) {
+      provider.setNativeGenerationControlsHidden(false);
+    }
+    if (provider && provider.syncPendingResponseState) {
+      provider.syncPendingResponseState({ active: false, threadId: "", promptToken: "" });
+    }
+    state.activeCleanupTasks.splice(0).forEach((cleanup) => cleanup());
+    if (sidebar && typeof sidebar.destroy === "function") {
+      sidebar.destroy();
+    } else if (sidebar) {
+      sidebar.render(null);
+    }
+    sidebar = null;
+    pendingScrollLock = null;
+    provider = null;
+    delete globalThis.CGQAProvider;
+    state.active = false;
+    state.providerId = "";
+    state.providerLabel = "";
+    state.conversationId = "";
+    state.threads = [];
+    state.activeThreadId = "";
+  }
+
   function resetTransientState() {
     state.pendingSelection = null;
     state.pendingResponse = null;
@@ -283,9 +350,14 @@
     if (isPluginUi(event.target)) {
       return;
     }
-    checkConversationChange();
+    if (!state.active || !provider) {
+      return;
+    }
 
     setTimeout(() => {
+      if (!state.active || !provider) {
+        return;
+      }
       const selection = window.getSelection();
       const result = provider.validateSelection(selection);
       if (!result.ok) {
@@ -1077,7 +1149,7 @@
   }
 
   function runRestorePass() {
-    if (state.loadingConversation) {
+    if (!state.active || !provider || state.loadingConversation) {
       return;
     }
 
@@ -1105,28 +1177,10 @@
   function destroy() {
     clearLocationCheckTimers();
     clearRestoreTimers();
-    clearPendingStableTimer();
-    stopPendingCaptureWatcher();
-    unlockPendingScroll();
+    if (state.active) {
+      deactivateProvider();
+    }
     state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
-    CGQASidebar.hideSelectionMenu();
-    if (sidebar && typeof sidebar.destroy === "function") {
-      sidebar.destroy();
-    } else if (sidebar) {
-      sidebar.render(null);
-    }
-    if (provider && provider.syncHiddenMainTurns) {
-      provider.syncHiddenMainTurns([]);
-    }
-    if (provider && provider.setMainComposerHidden) {
-      provider.setMainComposerHidden(false);
-    }
-    if (provider && provider.setNativeGenerationControlsHidden) {
-      provider.setNativeGenerationControlsHidden(false);
-    }
-    if (provider && provider.syncPendingResponseState) {
-      provider.syncPendingResponseState({ active: false, threadId: "", promptToken: "" });
-    }
   }
 
   globalThis[RUNTIME_KEY] = {

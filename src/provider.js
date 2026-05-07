@@ -10,7 +10,7 @@
 
   const provider = resolveProvider();
   if (!provider) {
-    console.warn("[CGQA] no page provider matched current location", location.href);
+    delete globalThis.CGQAProvider;
     return;
   }
 

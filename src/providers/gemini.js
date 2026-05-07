@@ -5,7 +5,15 @@
   const PROVIDER_LABEL = "Gemini";
 
   function matchesLocation(locationObject = location) {
-    return /(^|\.)gemini\.google\.com$/i.test(locationObject.hostname);
+    return isGeminiHost(locationObject.hostname) && isSupportedConversationPath(locationObject.pathname);
+  }
+
+  function isGeminiHost(hostname) {
+    return /(^|\.)gemini\.google\.com$/i.test(hostname);
+  }
+
+  function isSupportedConversationPath(pathname) {
+    return /^\/app(?:\/|$)/.test(pathname);
   }
 
   function getConversationMeta() {
