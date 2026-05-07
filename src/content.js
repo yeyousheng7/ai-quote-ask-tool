@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.9-block-reference-bars";
+  const CONTENT_VERSION = "0.7.10-block-reference-menu";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -377,7 +377,15 @@
   }
 
   function isPluginUi(target) {
-    return Boolean(target && target.closest && target.closest(".cgqa-root, .cgqa-selection-menu, .cgqa-selection-attached-button, .cgqa-toast"));
+    return Boolean(target && target.closest && target.closest([
+      ".cgqa-root",
+      ".cgqa-selection-menu",
+      ".cgqa-selection-attached-button",
+      ".cgqa-block-reference-bar",
+      ".cgqa-block-reference-chip",
+      ".cgqa-block-reference-more",
+      ".cgqa-toast"
+    ].join(",")));
   }
 
   function createThreadFromSelection() {
