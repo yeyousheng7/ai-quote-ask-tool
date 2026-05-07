@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.8-manual-answer-refresh";
+  const CONTENT_VERSION = "0.7.9-block-reference-bars";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -1237,7 +1237,8 @@
   globalThis[RUNTIME_KEY] = {
     version: CONTENT_VERSION,
     destroy,
-    openThread
+    openThread,
+    getThread
   };
   globalThis.CGQAApp = globalThis[RUNTIME_KEY];
   globalThis.CGQAContentVersion = CONTENT_VERSION;
