@@ -89,33 +89,40 @@
   }
 
   function getMessageNodeByRole(turn, role) {
-    if (!turn || !role) {
-      return null;
-    }
-    if (turn.matches(`[data-message-author-role='${role}']`)) {
-      return turn;
-    }
-    return turn.querySelector(`[data-message-author-role='${role}']`);
+    return getMessageNodesByRole(turn, role)[0] || null;
   }
 
   function getMessageNode(turn) {
-    if (!turn) {
-      return null;
+    return getMessageNodeByRole(turn, "assistant");
+  }
+
+  function getMessageNodesByRole(turn, role) {
+    if (!turn || !role) {
+      return [];
     }
-    if (turn.matches("[data-message-author-role='assistant']")) {
-      return turn;
+    if (turn.matches(`[data-message-author-role='${role}']`)) {
+      return [turn];
     }
-    return turn.querySelector("[data-message-author-role='assistant']");
+    return Array.from(turn.querySelectorAll(`[data-message-author-role='${role}']`)).filter((message) => {
+      return !message.parentElement || !message.parentElement.closest("[data-message-author-role]");
+    });
   }
 
   function getMarkdownNodes(turn) {
-    const message = getMessageNode(turn);
-    if (!message) {
-      return [];
-    }
-    return Array.from(message.querySelectorAll(".markdown.prose, .markdown-new-styling, .markdown")).filter((markdown) => {
+    const markdowns = getMessageNodesByRole(turn, "assistant").flatMap((message) => {
+      return Array.from(message.querySelectorAll(".markdown.prose, .markdown-new-styling, .markdown"));
+    });
+    return markdowns.filter((markdown) => {
       return !markdown.parentElement || !markdown.parentElement.closest(".markdown.prose, .markdown-new-styling, .markdown");
     });
+  }
+
+  function getMessageNodeForMarkdown(markdown) {
+    return markdown ? markdown.closest("[data-message-author-role='assistant']") : null;
+  }
+
+  function getMessageIdFromNode(message) {
+    return message ? message.getAttribute("data-message-id") || "" : "";
   }
 
   function getMarkdownNodeContainingNode(turn, node) {
@@ -128,7 +135,7 @@
 
   function getMessageId(turn) {
     const message = getMessageNode(turn);
-    return message ? message.getAttribute("data-message-id") : "";
+    return getMessageIdFromNode(message);
   }
 
   function getTurnId(turn) {
@@ -384,6 +391,7 @@
 
     const markdown = startMarkdown;
     const markdownIndex = getMarkdownNodeIndex(startTurn, markdown);
+    const sourceMessage = getMessageNodeForMarkdown(markdown);
 
     if (isBadSelectionNode(range.startContainer) || isBadSelectionNode(range.endContainer)) {
       return { ok: false, reason: "请只选择 ChatGPT 回复正文内容。" };
@@ -407,6 +415,7 @@
       turn: startTurn,
       markdown,
       markdownIndex,
+      sourceMessageId: getMessageIdFromNode(sourceMessage),
       selectedText,
       complex,
       ...anchor
@@ -925,7 +934,7 @@
         turn,
         role,
         turnId: getTurnId(turn),
-        messageId: message ? message.getAttribute("data-message-id") || "" : "",
+        messageId: getMessageIdFromNode(message),
         text: getTurnText(turn),
         html,
         contentFormat: html ? "html" : "text"
@@ -978,7 +987,7 @@
         index,
         turn,
         turnId: getTurnId(turn),
-        messageId: message ? message.getAttribute("data-message-id") || "" : "",
+        messageId: getMessageIdFromNode(message),
         text,
         html,
         contentFormat: html ? "html" : "text"

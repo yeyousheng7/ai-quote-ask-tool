@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.6-chatgpt-segmented-markdown";
+  const CONTENT_VERSION = "0.7.7-chatgpt-multi-message-turns";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -411,7 +411,7 @@
     const quoteId = uid("quote");
     const threadId = uid("thread");
     const sourceTurnId = provider.getTurnId(selection.turn);
-    const sourceMessageId = provider.getMessageId(selection.turn);
+    const sourceMessageId = selection.sourceMessageId || provider.getMessageId(selection.turn);
     const quoteText = selection.exactText || selection.selectedText;
     const conversationMeta = getConversationMeta();
 
