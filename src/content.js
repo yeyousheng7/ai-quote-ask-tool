@@ -561,21 +561,11 @@
   }
 
   function closeSidebar() {
-    const activeThread = getThread(state.activeThreadId);
-    const shouldSyncMainChatAfterClose = Boolean(
-      activeThread
-      && hasThreadStarted(activeThread)
-      && !state.loadingConversation
-    );
-
     discardEmptyActiveThread();
     state.activeThreadId = "";
     provider.setActiveMark("");
     sidebar.render(null);
     syncPanelDecorations();
-    if (shouldSyncMainChatAfterClose) {
-      syncMainChatVisibility(getMainChatHideTargets());
-    }
     unlockPanelScrollIfIdle();
   }
 
