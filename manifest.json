@@ -13,7 +13,8 @@
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
-        "https://gemini.google.com/*"
+        "https://gemini.google.com/*",
+        "https://chat.deepseek.com/*"
       ],
       "js": [
         "src/theme.js",
@@ -25,6 +26,8 @@
         "src/providers/chatgpt.js",
         "src/providers/gemini-dom.js",
         "src/providers/gemini.js",
+        "src/providers/deepseek-dom.js",
+        "src/providers/deepseek.js",
         "src/provider.js",
         "src/sidebar.js",
         "src/content.js"

@@ -10,8 +10,10 @@ The extension lets you select a small piece of an assistant reply, create a loca
 - ChatGPT GPT/project-style conversations: `https://chatgpt.com/g/*`
 - Legacy ChatGPT host equivalents under `https://chat.openai.com/c/*` and `https://chat.openai.com/g/*`
 - Gemini conversations: `https://gemini.google.com/app/*`
+- DeepSeek conversations: `https://chat.deepseek.com/a/chat/s/*`
 
 ChatGPT content scripts are allowed to load on the wider ChatGPT host so SPA navigation from the homepage into a supported route can be detected. The runtime only activates the plugin on supported conversation routes. Gemini is currently injected only under `/app/*`.
+DeepSeek follows the same route-activation model and only activates inside saved conversation routes under `/a/chat/s/*`.
 
 ## Install For Development
 
@@ -19,7 +21,7 @@ ChatGPT content scripts are allowed to load on the wider ChatGPT host so SPA nav
 2. Enable developer mode.
 3. Click `Load unpacked`.
 4. Select this project directory.
-5. Open a supported ChatGPT or Gemini conversation page.
+5. Open a supported ChatGPT, Gemini, or DeepSeek conversation page.
 
 Clicking the extension icon opens a small popup:
 
@@ -35,8 +37,10 @@ The popup opens the standalone local management page. It does not toggle the in-
 - On providers without a compatible native selection toolbar, the plugin shows a floating selection action near the selection.
 - The selected text is highlighted and receives a `提问 N` chip when the DOM can safely support an inline chip.
 - ChatGPT and Gemini code blocks/tables use a block reference bar before the block, such as `引用自下方代码块` or `引用自下方表格`, so copying block content is not affected.
+- DeepSeek code blocks/tables use the same block reference bar strategy.
 - Block reference bars show up to two `提问` chips and fold additional chips into `更多 N`.
-- Formula surfaces still use a conservative clickable surface mark instead of inserting a chip into fragile DOM.
+- ChatGPT and Gemini formula surfaces still use a conservative clickable surface mark instead of inserting a chip into fragile DOM.
+- DeepSeek formula surfaces are more fragile: complete formula selection can create a quote thread, but the page mark is intentionally not rendered and partial formula selection is rejected.
 - Inline code is supported as normal selectable text.
 - Closing a newly opened draft without sending removes the draft mark.
 - Sending the first question promotes the draft mark into a persisted thread.
@@ -95,6 +99,17 @@ The popup opens the standalone local management page. It does not toggle the in-
 - Includes Gemini-specific pending cleanup for the native stop button/input state.
 - Manual reply refresh is available in the same panel UI as ChatGPT.
 
+### DeepSeek
+
+- Supports saved conversation routes under `https://chat.deepseek.com/a/chat/s/*`.
+- Uses DeepSeek-specific DOM selectors for virtual-list turns, assistant markdown, user messages, composer, send button, stop button, and scroll container.
+- The page scroll lock targets DeepSeek's `.ds-virtual-list--printable` scroll container.
+- Code blocks and tables are referenced by a bar before the block, preserving native copy/download behavior.
+- Complete formula selections are allowed as quote-only threads, but DeepSeek formula marks are not rendered. This avoids mutating KaTeX/math DOM that DeepSeek's frontend framework manages strictly.
+- Partial formula selections are rejected.
+- During a panel-sent pending response, DeepSeek thinking controls and thinking content are hidden while the sidebar captures the final answer.
+- DeepSeek formula DOM is a known unstable area. If a page has already crashed after previous formula-marking experiments, refresh the conversation to restore a clean provider DOM before testing again.
+
 ## Reply Style And Theme
 
 The panel stores global reply style settings in local extension storage:
@@ -120,7 +135,7 @@ The active theme drives quote marks, chips, panel focus states, popup controls, 
 
 - Threads are stored in `chrome.storage.local`.
 - Stored data is provider-aware and grouped by provider id plus conversation id.
-- The management page reads structured storage data only; it does not scan ChatGPT or Gemini DOM.
+- The management page reads structured storage data only; it does not scan provider page DOM.
 - The management page supports:
   - viewing saved conversations,
   - viewing saved quote threads,
@@ -138,6 +153,8 @@ Deleting a thread removes the corresponding local record and removes visible quo
 - `src/providers/chatgpt-dom.js` owns ChatGPT DOM queries, selection validation, segmented Markdown handling, quote anchoring, mark rendering/restoration, composer submission, assistant extraction, hidden main-turn handling, and ChatGPT scroll target lookup.
 - `src/providers/gemini.js` registers Gemini provider metadata and exposes the Gemini DOM driver through the provider contract.
 - `src/providers/gemini-dom.js` owns Gemini DOM queries, selection validation, quote anchoring, mark rendering/restoration, composer submission, assistant extraction, pending cleanup, and Gemini scroll target lookup.
+- `src/providers/deepseek.js` registers DeepSeek provider metadata and exposes the DeepSeek DOM driver through the provider contract.
+- `src/providers/deepseek-dom.js` owns DeepSeek DOM queries, selection validation, quote anchoring, conservative mark rendering/restoration, composer submission, assistant extraction, pending cleanup, and DeepSeek scroll target lookup.
 - `src/sidebar.js` owns the floating panel, selection action UI, reply style controls, assistant refresh button UI, and panel interactions.
 - `src/storage.js` owns persisted conversation/thread data and migration/reset policy.
 - `src/sanitize.js` owns safe HTML rendering for saved assistant replies.
@@ -146,6 +163,8 @@ Deleting a thread removes the corresponding local record and removes visible quo
 - `src/scroll-lock.js` owns the provider-targeted scroll lock used during panel-sent responses.
 - `popup.html` and `src/popup.js` own the extension action popup.
 - `manager.html` and `src/manager.js` own the standalone management page.
+- `AI_WEB_DOM_CAPTURE_PROMPTS.md` contains reusable prompt sequences for collecting provider DOM samples.
+- `tools/scroll-container-probe.js` is a reusable DevTools snippet for identifying the active internal scroll container on a provider page.
 
 Provider-specific DOM behavior should stay inside `src/providers/*-dom.js`. Shared business flow should stay provider-neutral in `src/content.js`.
 
@@ -157,6 +176,8 @@ Provider-specific DOM behavior should stay inside `src/providers/*-dom.js`. Shar
 - Cross-thought selection in ChatGPT is intentionally not supported.
 - Cross-message or cross-user/assistant selection is intentionally rejected.
 - Formula marking is conservative to avoid corrupting provider-rendered DOM.
+- DeepSeek formula marking is disabled entirely. Complete formulas can still be quoted and asked about, but no visible mark is rendered on the provider page.
 - ChatGPT and Gemini code blocks/tables are referenced by a bar before the block rather than by inline text marks, so selecting exact code/table text is preserved in storage but the visible page marker is block-level.
+- DeepSeek code blocks/tables follow the same block reference strategy; formula selections are stored without a page marker.
 - Already-unloaded hidden main-chat DOM cannot be manually refreshed until the provider page re-renders it, for example after a page refresh.
 - If a saved quote cannot be matched safely after provider DOM changes, the extension keeps the saved thread but does not force-render an unsafe mark.
