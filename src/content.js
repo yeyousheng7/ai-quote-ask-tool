@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.12-provider-toggles";
+  const CONTENT_VERSION = "0.7.13-page-repair-command";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -57,6 +57,7 @@
   }
 
   async function init() {
+    bindRuntimeMessages();
     bindNavigationEvents();
     bindSettingsEvents();
     await reconcileLocation();
@@ -209,6 +210,27 @@
     };
     chrome.storage.onChanged.addListener(handleStorageChange);
     state.cleanupTasks.push(() => chrome.storage.onChanged.removeListener(handleStorageChange));
+  }
+
+  function bindRuntimeMessages() {
+    if (!chrome.runtime || !chrome.runtime.onMessage) {
+      return;
+    }
+
+    const handleMessage = (message, _sender, sendResponse) => {
+      if (!message || message.type !== "CGQA_REPAIR_PAGE") {
+        return false;
+      }
+      repairCurrentPage().then(sendResponse).catch((error) => {
+        sendResponse({
+          ok: false,
+          message: error && error.message || "整理当前页面失败。"
+        });
+      });
+      return true;
+    };
+    chrome.runtime.onMessage.addListener(handleMessage);
+    state.cleanupTasks.push(() => chrome.runtime.onMessage.removeListener(handleMessage));
   }
 
   function addRuntimeEvent(target, type, handler, options) {
@@ -910,6 +932,27 @@
   function syncPageDecorations() {
     syncMainChatVisibility();
     syncPanelDecorations();
+  }
+
+  async function repairCurrentPage() {
+    await reconcileLocation();
+    if (!state.active || !provider) {
+      return {
+        ok: false,
+        message: "当前页面未启用提问助手。"
+      };
+    }
+
+    const targets = getMainChatHideTargets();
+    syncMainChatVisibility(targets);
+    syncKnownMainChatVisibility(targets);
+    restorePersistedMarks();
+    scheduleRestoreBurst();
+    syncPageDecorations();
+    return {
+      ok: true,
+      message: `已整理当前页面：${state.threads.length} 个提问，${targets.length} 条临时消息。`
+    };
   }
 
   function syncPanelDecorations() {

@@ -70,6 +70,11 @@ body {
   background: var(--cgqa-accent-softer);
 }
 
+.popup-action:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .popup-action:focus-visible {
   outline: 0;
   box-shadow: 0 0 0 3px var(--cgqa-accent-glow), 0 8px 24px rgba(0, 0, 0, 0.07);
@@ -83,6 +88,48 @@ body {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.popup-command-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.popup-command-row .popup-action {
+  flex: 1 1 auto;
+}
+
+.popup-action-secondary {
+  min-height: 40px;
+  color: #344054;
+  box-shadow: none;
+}
+
+.popup-command-help {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  background: #fff;
+  border: 1px solid #e8eaed;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.055);
+}
+
+.popup-status {
+  min-height: 18px;
+  margin-top: 6px;
+  color: #8b949e;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.popup-status[data-state="success"] {
+  color: var(--cgqa-accent-deep);
+}
+
+.popup-status[data-state="failed"] {
+  color: #be123c;
 }
 
 .popup-provider-card {
@@ -164,6 +211,11 @@ body {
 .popup-help:hover {
   color: var(--cgqa-accent-deep);
   background: var(--cgqa-accent-softer);
+}
+
+.popup-help.popup-command-help {
+  width: 34px;
+  height: 34px;
 }
 
 .popup-help svg {

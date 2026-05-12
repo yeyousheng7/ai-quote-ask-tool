@@ -3,6 +3,9 @@
 
   const themeSelect = document.getElementById("theme-select");
   const providerList = document.getElementById("provider-list");
+  const repairButton = document.getElementById("repair-page");
+  const repairHelp = document.getElementById("repair-help");
+  const repairStatus = document.getElementById("repair-status");
   const PROVIDERS = [
     { id: "chatgpt", label: "ChatGPT" },
     { id: "gemini", label: "Gemini" },
@@ -17,6 +20,25 @@
   document.getElementById("open-manager").addEventListener("click", () => {
     chrome.tabs.create({ url: chrome.runtime.getURL("manager.html") });
     window.close();
+  });
+
+  repairHelp.innerHTML = getHelpIconSvg();
+
+  repairButton.addEventListener("click", async () => {
+    setRepairStatus("running", "正在整理当前页面...");
+    repairButton.disabled = true;
+    try {
+      const response = await sendRepairCommand();
+      if (response && response.ok) {
+        setRepairStatus("success", response.message || "已尝试整理当前页面。");
+        return;
+      }
+      setRepairStatus("failed", response && response.message || "当前页面未启用提问助手。");
+    } catch (error) {
+      setRepairStatus("failed", error && error.message || "当前页面无法接收整理命令。");
+    } finally {
+      repairButton.disabled = false;
+    }
   });
 
   themeSelect.addEventListener("change", async () => {
@@ -85,14 +107,55 @@
     help.className = "popup-help";
     help.title = description || "";
     help.setAttribute("aria-label", description || "提示");
-    help.innerHTML = [
+    help.innerHTML = getHelpIconSvg();
+    return help;
+  }
+
+  function getHelpIconSvg() {
+    return [
       '<svg viewBox="0 0 24 24" aria-hidden="true">',
       '<circle cx="12" cy="12" r="9"></circle>',
       '<path d="M9.6 9.2a2.6 2.6 0 0 1 5.05.85c0 1.75-1.55 2.22-2.2 3.18-.2.3-.3.63-.3 1.02"></path>',
       '<path d="M12 17.5h.01"></path>',
       '</svg>'
     ].join("");
-    return help;
+  }
+
+  async function sendRepairCommand() {
+    const tab = await getActiveTab();
+    if (!tab || !Number.isInteger(tab.id)) {
+      throw new Error("找不到当前标签页。");
+    }
+    return sendMessageToTab(tab.id, { type: "CGQA_REPAIR_PAGE" });
+  }
+
+  function getActiveTab() {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+          return;
+        }
+        resolve(tabs && tabs[0] || null);
+      });
+    });
+  }
+
+  function sendMessageToTab(tabId, message) {
+    return new Promise((resolve, reject) => {
+      chrome.tabs.sendMessage(tabId, message, (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error("当前页面未加载提问助手，或该页面不受支持。"));
+          return;
+        }
+        resolve(response || null);
+      });
+    });
+  }
+
+  function setRepairStatus(kind, text) {
+    repairStatus.textContent = text || "";
+    repairStatus.dataset.state = kind || "";
   }
 
   Promise.all([
