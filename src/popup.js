@@ -6,6 +6,8 @@
   const repairButton = document.getElementById("repair-page");
   const repairHelp = document.getElementById("repair-help");
   const repairStatus = document.getElementById("repair-status");
+  const sendVisibilityToggle = document.getElementById("send-visibility-toggle");
+  const sendVisibilityHelp = document.getElementById("send-visibility-help");
   const PROVIDERS = [
     { id: "chatgpt", label: "ChatGPT" },
     { id: "gemini", label: "Gemini" },
@@ -23,6 +25,7 @@
   });
 
   repairHelp.innerHTML = getHelpIconSvg();
+  sendVisibilityHelp.innerHTML = getHelpIconSvg();
 
   repairButton.addEventListener("click", async () => {
     setRepairStatus("running", "正在整理当前页面...");
@@ -56,6 +59,13 @@
     });
   });
 
+  sendVisibilityToggle.addEventListener("change", async () => {
+    const settings = await CGQAStorage.saveCompatibilitySettings({
+      keepProviderUiVisibleDuringSend: sendVisibilityToggle.checked
+    });
+    renderCompatibilitySettings(settings);
+  });
+
   function applyTheme(theme) {
     const normalized = CGQATheme.applyTheme(theme);
     CGQATheme.renderThemeOptions(themeSelect, normalized);
@@ -66,6 +76,10 @@
     PROVIDERS.forEach((provider) => {
       providerList.append(createProviderToggle(provider, Boolean(settings && settings[provider.id])));
     });
+  }
+
+  function renderCompatibilitySettings(settings) {
+    sendVisibilityToggle.checked = Boolean(settings && settings.keepProviderUiVisibleDuringSend);
   }
 
   function createProviderToggle(provider, checked) {
@@ -160,9 +174,11 @@
 
   Promise.all([
     CGQAStorage.getThemeSettings(),
-    CGQAStorage.getProviderSettings()
-  ]).then(([theme, providers]) => {
+    CGQAStorage.getProviderSettings(),
+    CGQAStorage.getCompatibilitySettings()
+  ]).then(([theme, providers, compatibility]) => {
     applyTheme(theme);
     renderProviderSettings(providers);
+    renderCompatibilitySettings(compatibility);
   }).catch((error) => console.error("[CGQA] popup settings load failed", error));
 })();

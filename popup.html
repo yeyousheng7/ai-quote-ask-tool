@@ -40,6 +40,17 @@
       <div class="popup-section-title" id="provider-title">启用页面</div>
       <div id="provider-list" class="popup-provider-list"></div>
     </section>
+    <section class="popup-option-card" aria-labelledby="compatibility-title">
+      <div class="popup-section-title" id="compatibility-title">兼容选项</div>
+      <label class="popup-option-row">
+        <span class="popup-option-text">
+          <span class="popup-option-name">发送时保留原生界面</span>
+          <span id="send-visibility-help" class="popup-help" title="页面状态异常时可尝试开启, 此选项会降低视觉体验"></span>
+        </span>
+        <input id="send-visibility-toggle" type="checkbox" aria-label="发送时保留原生界面">
+        <span class="popup-switch" aria-hidden="true"><span></span></span>
+      </label>
+    </section>
     <label class="popup-theme">
       <span>主题色</span>
       <select id="theme-select" aria-label="主题色"></select>
