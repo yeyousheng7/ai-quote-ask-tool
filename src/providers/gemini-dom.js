@@ -1251,17 +1251,8 @@
 
   async function completePendingResponse() {
     await new Promise((resolve) => setTimeout(resolve, 350));
-    clickResidualStopButton();
     clearPromptText();
     blurActiveElement();
-  }
-
-  function clickResidualStopButton() {
-    const button = findStopButton();
-    if (!button) {
-      return;
-    }
-    clickElement(button);
   }
 
   function findStopButton() {
