@@ -1048,8 +1048,56 @@
     return matches.length === 1 ? createRangeFromOffsets(markdown, matches[0], matches[0] + exactText.length) : null;
   }
 
-  function getAllTurns() {
-    return Array.from(document.querySelectorAll(TURN_SELECTOR)).filter((turn) => getUserNode(turn) || getMessageNode(turn));
+  function queryElements(root, selector) {
+    const scope = root || document;
+    const elements = [];
+    if (scope.nodeType === Node.ELEMENT_NODE && scope.matches(selector)) {
+      elements.push(scope);
+    }
+    elements.push(...Array.from(scope.querySelectorAll(selector)));
+    return elements;
+  }
+
+  function getAllTurns(root = document) {
+    return queryElements(root, TURN_SELECTOR).filter((turn) => getUserNode(turn) || getMessageNode(turn));
+  }
+
+  function createTurnScanContext() {
+    const turns = getAllTurns();
+    const tailTurn = turns[turns.length - 1] || null;
+    return {
+      tailTurn,
+      container: tailTurn && tailTurn.parentElement || document.body || document.documentElement,
+      createdAt: Date.now()
+    };
+  }
+
+  function getPendingResponseWatchTarget(context) {
+    if (context && context.container && context.container.isConnected) {
+      return context.container;
+    }
+    return document.body || document.documentElement;
+  }
+
+  function getTurnsFromScanContext(context) {
+    if (!context || !context.tailTurn || !context.tailTurn.isConnected) {
+      return null;
+    }
+    const container = context.container && context.container.isConnected
+      ? context.container
+      : context.tailTurn.parentElement;
+    if (!container || !container.isConnected) {
+      return null;
+    }
+    const turns = getAllTurns(container).filter((turn) => {
+      return turn === context.tailTurn
+        || Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return turns.length ? turns : null;
+  }
+
+  function getTurnScope(context) {
+    return context ? getTurnsFromScanContext(context) || [] : getAllTurns();
   }
 
   function getUserText(turn) {
@@ -1062,9 +1110,9 @@
     return markdown ? getReadableText(markdown).trim() : "";
   }
 
-  function getAllTurnRecords() {
+  function buildAllTurnRecords(turns) {
     const records = [];
-    getAllTurns().forEach((turn) => {
+    turns.forEach((turn) => {
       const user = getUserNode(turn);
       if (user) {
         records.push({
@@ -1095,8 +1143,12 @@
     return records.filter((record) => record.role && record.turn);
   }
 
-  function getAssistantMessageRecords() {
-    return getAllTurns().map((turn, index) => {
+  function getAllTurnRecords(context) {
+    return buildAllTurnRecords(getTurnScope(context));
+  }
+
+  function getAssistantMessageRecords(context) {
+    return getTurnScope(context).map((turn, index) => {
       const markdown = getMarkdownNode(turn);
       return markdown ? {
         index,
@@ -1110,9 +1162,10 @@
     }).filter((record) => record && (record.messageId || record.text));
   }
 
-  function syncHiddenMainTurns(targets) {
+  function syncHiddenMainTurns(targets, context) {
     const normalizedTargets = normalizeHiddenTargets(targets);
-    const records = getAllTurnRecords();
+    const scopedTurns = getTurnsFromScanContext(context);
+    const records = buildAllTurnRecords(scopedTurns || getAllTurns());
     const turnsToDecorate = new Map();
 
     records.forEach((record, index) => {
@@ -1130,7 +1183,10 @@
       }
     });
 
-    document.querySelectorAll(`.${HIDDEN_TURN_CLASS}`).forEach((turn) => {
+    const hiddenTurns = scopedTurns
+      ? scopedTurns.filter((turn) => turn.classList.contains(HIDDEN_TURN_CLASS))
+      : Array.from(document.querySelectorAll(`.${HIDDEN_TURN_CLASS}`));
+    hiddenTurns.forEach((turn) => {
       if (!turnsToDecorate.has(turn)) {
         unhideMainTurn(turn);
       }
@@ -1142,6 +1198,11 @@
       }
       hideMainTurn(turn, target);
     });
+    return {
+      local: Boolean(scopedTurns),
+      matched: turnsToDecorate.size > 0,
+      scanned: records.length
+    };
   }
 
   function syncKnownHiddenMainTurns(targets) {
@@ -1516,6 +1577,8 @@
 
   globalThis.CGQADeepSeekDom = {
     validateSelection,
+    createTurnScanContext,
+    getPendingResponseWatchTarget,
     getConversationId,
     getTurnId,
     getMessageId,

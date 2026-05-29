@@ -829,7 +829,8 @@
       contentFormat: "text"
     };
     thread.messages.push(userMessage, assistantMessage);
-    state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken);
+    const scanContext = createTurnScanContext();
+    state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken, scanContext);
     if (shouldKeepProviderUiVisibleDuringSend()) {
       syncPanelDecorations();
     }
@@ -916,7 +917,7 @@
     return targets;
   }
 
-  function syncMainChatVisibility(targets) {
+  function syncMainChatVisibility(targets, options = {}) {
     if (!provider.syncHiddenMainTurns) {
       return;
     }
@@ -928,7 +929,9 @@
     if (!hasExplicitTargets && resolvedTargets.length === 0) {
       return;
     }
-    provider.syncHiddenMainTurns(resolvedTargets);
+    const scanContext = options.scanContext || (!hasExplicitTargets ? getPendingScanContextForVisibility() : null);
+    const result = provider.syncHiddenMainTurns(resolvedTargets, scanContext);
+    recordPendingVisibilityScanResult(result, scanContext);
   }
 
   function shouldKeepProviderUiVisibleDuringSend() {
@@ -1007,8 +1010,20 @@
     syncProviderPendingResponseState();
   }
 
-  function createResponseTracker(threadId, promptToken) {
-    const baselineRecords = provider.getAssistantMessageRecords();
+  function createTurnScanContext() {
+    if (!provider || typeof provider.createTurnScanContext !== "function") {
+      return null;
+    }
+    try {
+      return provider.createTurnScanContext() || null;
+    } catch (error) {
+      console.warn("[CGQA] create turn scan context failed", error);
+      return null;
+    }
+  }
+
+  function createResponseTracker(threadId, promptToken, scanContext) {
+    const baselineRecords = getAssistantMessageRecords(scanContext);
     const baselineTextBySignature = {};
     baselineRecords.forEach((record) => {
       baselineTextBySignature[getAssistantRecordSignature(record)] = record.text || "";
@@ -1016,10 +1031,39 @@
     return {
       threadId,
       promptToken,
+      scanContext: scanContext || null,
       baselineTextBySignature,
       candidate: null,
+      localCaptureMissCount: 0,
+      localVisibilityMissCount: 0,
       startedAt: Date.now(),
     };
+  }
+
+  function getPendingScanContext() {
+    return state.pendingResponse && state.pendingResponse.scanContext || null;
+  }
+
+  function getPendingScanContextForVisibility() {
+    const tracker = state.pendingResponse;
+    if (!tracker || !tracker.scanContext) {
+      return null;
+    }
+    return tracker.localVisibilityMissCount < 4 ? tracker.scanContext : null;
+  }
+
+  function recordPendingVisibilityScanResult(result, scanContext) {
+    const tracker = state.pendingResponse;
+    if (!tracker || !scanContext) {
+      return;
+    }
+    if (result && result.local && result.matched) {
+      tracker.localVisibilityMissCount = 0;
+      return;
+    }
+    if (result && result.local) {
+      tracker.localVisibilityMissCount += 1;
+    }
   }
 
   function capturePendingAssistantIfReady() {
@@ -1093,7 +1137,7 @@
         return;
       }
 
-      const latest = findAssistantRecordBySignature(signature) || findPendingAssistantCandidate(thread);
+      const latest = findAssistantRecordBySignature(signature, pending.scanContext) || findPendingAssistantCandidate(thread);
       const text = latest ? latest.text : candidate.text;
       if (!text || text === generating.content || text === thread.quoteText) {
         return;
@@ -1127,18 +1171,40 @@
   }
 
   function findPendingAssistantCandidate(thread) {
-    const records = provider.getAssistantMessageRecords();
     const tracker = state.pendingResponse;
     if (!tracker) {
       return null;
     }
 
-    const followupRecord = findAssistantRecordAfterPromptToken(thread, records, tracker.promptToken);
+    const scanContext = tracker.localCaptureMissCount < 4 ? tracker.scanContext : null;
+    const records = getAssistantMessageRecords(scanContext);
+    const turnRecords = getAllTurnRecords(scanContext);
+    const followupRecord = findAssistantRecordAfterPromptToken(thread, records, tracker.promptToken, turnRecords);
     if (followupRecord) {
+      tracker.localCaptureMissCount = 0;
       return followupRecord;
     }
 
-    return findChangedAssistantRecord(thread, records, tracker.baselineTextBySignature);
+    const changedRecord = findChangedAssistantRecord(thread, records, tracker.baselineTextBySignature);
+    if (changedRecord) {
+      tracker.localCaptureMissCount = 0;
+      return changedRecord;
+    }
+
+    if (scanContext) {
+      tracker.localCaptureMissCount += 1;
+      if (tracker.localCaptureMissCount < 4) {
+        return null;
+      }
+    }
+
+    const fullAssistantRecords = scanContext ? getAssistantMessageRecords(null) : records;
+    const fullTurnRecords = scanContext ? getAllTurnRecords(null) : turnRecords;
+    const fullFollowupRecord = findAssistantRecordAfterPromptToken(thread, fullAssistantRecords, tracker.promptToken, fullTurnRecords);
+    if (fullFollowupRecord || scanContext) {
+      return fullFollowupRecord;
+    }
+    return findChangedAssistantRecord(thread, fullAssistantRecords, tracker.baselineTextBySignature);
   }
 
   function startPendingCaptureWatcher() {
@@ -1147,10 +1213,25 @@
       capturePendingAssistantIfReady();
     }, 1000);
 
-    if (document.body) {
+    const watchTarget = getPendingResponseWatchTarget();
+    if (watchTarget) {
       state.pendingCaptureObserver = new MutationObserver(handlePendingMutation);
-      state.pendingCaptureObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      state.pendingCaptureObserver.observe(watchTarget, { childList: true, subtree: true, characterData: true });
     }
+  }
+
+  function getPendingResponseWatchTarget() {
+    if (provider && typeof provider.getPendingResponseWatchTarget === "function") {
+      try {
+        const target = provider.getPendingResponseWatchTarget(getPendingScanContext());
+        if (target && target.nodeType === Node.ELEMENT_NODE) {
+          return target;
+        }
+      } catch (error) {
+        console.warn("[CGQA] get pending response watch target failed", error);
+      }
+    }
+    return document.body || document.documentElement;
   }
 
   function stopPendingCaptureWatcher() {
@@ -1199,12 +1280,12 @@
     }) || null;
   }
 
-  function findAssistantRecordAfterPromptToken(thread, assistantRecords, promptToken) {
+  function findAssistantRecordAfterPromptToken(thread, assistantRecords, promptToken, turnRecords) {
     if (!promptToken) {
       return null;
     }
 
-    const records = provider.getAllTurnRecords();
+    const records = Array.isArray(turnRecords) ? turnRecords : getAllTurnRecords(null);
     const promptIndex = findLastPromptUserRecordIndex(records, promptToken);
     if (promptIndex < 0) {
       return null;
@@ -1237,7 +1318,12 @@
       return;
     }
 
-    const record = findAssistantRecordAfterPromptToken(thread, provider.getAssistantMessageRecords(), promptToken);
+    const record = findAssistantRecordAfterPromptToken(
+      thread,
+      getAssistantMessageRecords(null),
+      promptToken,
+      getAllTurnRecords(null)
+    );
     if (!record || !record.text) {
       CGQASidebar.showToast("暂未获取到更新内容。");
       return;
@@ -1291,10 +1377,30 @@
     }) || null;
   }
 
-  function findAssistantRecordBySignature(signature) {
-    return provider.getAssistantMessageRecords().find((record) => {
+  function findAssistantRecordBySignature(signature, scanContext) {
+    const local = scanContext ? getAssistantMessageRecords(scanContext).find((record) => {
+      return getAssistantRecordSignature(record) === signature;
+    }) : null;
+    if (local) {
+      return local;
+    }
+    return getAssistantMessageRecords(null).find((record) => {
       return getAssistantRecordSignature(record) === signature;
     });
+  }
+
+  function getAssistantMessageRecords(scanContext) {
+    if (!provider || typeof provider.getAssistantMessageRecords !== "function") {
+      return [];
+    }
+    return provider.getAssistantMessageRecords(scanContext || null) || [];
+  }
+
+  function getAllTurnRecords(scanContext) {
+    if (!provider || typeof provider.getAllTurnRecords !== "function") {
+      return [];
+    }
+    return provider.getAllTurnRecords(scanContext || null) || [];
   }
 
   function getAssistantRecordSignature(record) {

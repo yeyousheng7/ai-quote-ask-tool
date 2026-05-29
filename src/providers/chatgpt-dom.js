@@ -1069,12 +1069,60 @@
     return createRangeFromOffsets(markdown, matches[0], matches[0] + exactText.length);
   }
 
-  function getAllTurns() {
-    const sectionTurns = Array.from(document.querySelectorAll("section[data-testid^='conversation-turn-'][data-turn], section[data-turn]"))
+  function queryElements(root, selector) {
+    const scope = root || document;
+    const elements = [];
+    if (scope.nodeType === Node.ELEMENT_NODE && scope.matches(selector)) {
+      elements.push(scope);
+    }
+    elements.push(...Array.from(scope.querySelectorAll(selector)));
+    return elements;
+  }
+
+  function getAllTurns(root = document) {
+    const sectionTurns = queryElements(root, "section[data-testid^='conversation-turn-'][data-turn], section[data-turn]")
       .map(getTurnContainerForMessageNode);
-    const messageTurns = Array.from(document.querySelectorAll("[data-message-author-role='user'], [data-message-author-role='assistant']"))
+    const messageTurns = queryElements(root, "[data-message-author-role='user'], [data-message-author-role='assistant']")
       .map(getTurnContainerForMessageNode);
     return sortElementsByDocumentOrder(uniqueElements([...sectionTurns, ...messageTurns]));
+  }
+
+  function createTurnScanContext() {
+    const turns = getAllTurns();
+    const tailTurn = turns[turns.length - 1] || null;
+    return {
+      tailTurn,
+      container: tailTurn && tailTurn.parentElement || document.body || document.documentElement,
+      createdAt: Date.now()
+    };
+  }
+
+  function getPendingResponseWatchTarget(context) {
+    if (context && context.container && context.container.isConnected) {
+      return context.container;
+    }
+    return document.body || document.documentElement;
+  }
+
+  function getTurnsFromScanContext(context) {
+    if (!context || !context.tailTurn || !context.tailTurn.isConnected) {
+      return null;
+    }
+    const container = context.container && context.container.isConnected
+      ? context.container
+      : context.tailTurn.parentElement;
+    if (!container || !container.isConnected) {
+      return null;
+    }
+    const turns = getAllTurns(container).filter((turn) => {
+      return turn === context.tailTurn
+        || Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    return turns.length ? turns : null;
+  }
+
+  function getTurnScope(context) {
+    return context ? getTurnsFromScanContext(context) || [] : getAllTurns();
   }
 
   function getTurnText(turn) {
@@ -1094,8 +1142,8 @@
     return markdowns.map((markdown) => getSanitizedHtml(markdown)).filter(Boolean).join("");
   }
 
-  function getAllTurnRecords() {
-    return getAllTurns().map((turn, index) => {
+  function buildAllTurnRecords(turns) {
+    return turns.map((turn, index) => {
       const role = getTurnRole(turn);
       const message = getMessageNodeByRole(turn, role);
       const markdowns = role === "assistant" ? getMarkdownNodes(turn) : [];
@@ -1111,6 +1159,10 @@
         contentFormat: html ? "html" : "text"
       };
     }).filter((record) => record.role && record.turn);
+  }
+
+  function getAllTurnRecords(context) {
+    return buildAllTurnRecords(getTurnScope(context));
   }
 
   function getAssistantTurns() {
@@ -1148,8 +1200,9 @@
     });
   }
 
-  function getAssistantMessageRecords() {
-    return getAssistantTurns().map((turn, index) => {
+  function getAssistantMessageRecords(context) {
+    const turns = context ? getTurnScope(context).filter((turn) => getTurnRole(turn) === "assistant") : getAssistantTurns();
+    return turns.map((turn, index) => {
       const message = getMessageNode(turn);
       const markdowns = getMarkdownNodes(turn);
       const text = getMarkdownText(markdowns);
@@ -1166,9 +1219,10 @@
     }).filter((record) => record.text);
   }
 
-  function syncHiddenMainTurns(targets) {
+  function syncHiddenMainTurns(targets, context) {
     const normalizedTargets = normalizeHiddenTargets(targets);
-    const records = getAllTurnRecords();
+    const scopedTurns = getTurnsFromScanContext(context);
+    const records = buildAllTurnRecords(scopedTurns || getAllTurns());
     const turnsToDecorate = new Map();
 
     records.forEach((record, index) => {
@@ -1187,7 +1241,10 @@
       });
     });
 
-    document.querySelectorAll(`.${HIDDEN_TURN_CLASS}`).forEach((turn) => {
+    const hiddenTurns = scopedTurns
+      ? scopedTurns.filter((turn) => turn.classList.contains(HIDDEN_TURN_CLASS))
+      : Array.from(document.querySelectorAll(`.${HIDDEN_TURN_CLASS}`));
+    hiddenTurns.forEach((turn) => {
       if (!turnsToDecorate.has(turn)) {
         unhideMainTurn(turn);
       }
@@ -1200,6 +1257,11 @@
       }
       hideMainTurn(turn, target);
     });
+    return {
+      local: Boolean(scopedTurns),
+      matched: turnsToDecorate.size > 0,
+      scanned: records.length
+    };
   }
 
   function syncKnownHiddenMainTurns(targets) {
@@ -1723,6 +1785,8 @@
   globalThis.CGQAChatGPTDom = {
     validateSelection,
     attachSelectionAction,
+    createTurnScanContext,
+    getPendingResponseWatchTarget,
     getConversationId,
     getTurnId,
     getMessageId,

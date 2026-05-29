@@ -47,6 +47,8 @@
       getConversationId: CGQADeepSeekDom.getConversationId,
       getConversationMeta,
       validateSelection: CGQADeepSeekDom.validateSelection,
+      createTurnScanContext: CGQADeepSeekDom.createTurnScanContext,
+      getPendingResponseWatchTarget: CGQADeepSeekDom.getPendingResponseWatchTarget,
       getTurnId: CGQADeepSeekDom.getTurnId,
       getMessageId: CGQADeepSeekDom.getMessageId,
       renderThreadMark: CGQADeepSeekDom.renderThreadMark,

@@ -49,6 +49,8 @@
       getConversationMeta,
       validateSelection: CGQAChatGPTDom.validateSelection,
       attachSelectionAction: CGQAChatGPTDom.attachSelectionAction,
+      createTurnScanContext: CGQAChatGPTDom.createTurnScanContext,
+      getPendingResponseWatchTarget: CGQAChatGPTDom.getPendingResponseWatchTarget,
       getTurnId: CGQAChatGPTDom.getTurnId,
       getMessageId: CGQAChatGPTDom.getMessageId,
       renderThreadMark: CGQAChatGPTDom.renderThreadMark,
