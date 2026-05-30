@@ -49,6 +49,7 @@
       validateSelection: CGQAGeminiDom.validateSelection,
       createTurnScanContext: CGQAGeminiDom.createTurnScanContext,
       getPendingResponseWatchTarget: CGQAGeminiDom.getPendingResponseWatchTarget,
+      getAssistantWatchTarget: CGQAGeminiDom.getAssistantWatchTarget,
       getTurnId: CGQAGeminiDom.getTurnId,
       getMessageId: CGQAGeminiDom.getMessageId,
       renderThreadMark: CGQAGeminiDom.renderThreadMark,

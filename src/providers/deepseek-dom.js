@@ -1079,6 +1079,14 @@
     return document.body || document.documentElement;
   }
 
+  function getAssistantWatchTarget(signature, context) {
+    const turn = getAssistantTurnBySignature(signature, context);
+    if (!turn || !turn.isConnected) {
+      return null;
+    }
+    return getMarkdownNode(turn) || turn;
+  }
+
   function getTurnsFromScanContext(context) {
     if (!context || !context.tailTurn || !context.tailTurn.isConnected) {
       return null;
@@ -1159,6 +1167,38 @@
         contentFormat: "html"
       } : null;
     }).filter((record) => record && (record.messageId || record.text));
+  }
+
+  function getAssistantTurnBySignature(signature, context) {
+    const parsed = parseAssistantRecordSignature(signature);
+    if (!parsed) {
+      return null;
+    }
+    const turns = getTurnScope(context);
+    if (parsed.type === "message") {
+      return turns.find((turn) => getMessageId(turn) === parsed.value && getMarkdownNode(turn)) || null;
+    }
+    if (parsed.type === "turn") {
+      return turns.find((turn) => getTurnId(turn) === parsed.value && getMarkdownNode(turn)) || null;
+    }
+    if (parsed.type === "index") {
+      const index = Number(parsed.value);
+      const turn = Number.isInteger(index) ? turns[index] || null : null;
+      return turn && getMarkdownNode(turn) ? turn : null;
+    }
+    return null;
+  }
+
+  function parseAssistantRecordSignature(signature) {
+    const text = String(signature || "");
+    const separatorIndex = text.indexOf(":");
+    if (separatorIndex <= 0) {
+      return null;
+    }
+    return {
+      type: text.slice(0, separatorIndex),
+      value: text.slice(separatorIndex + 1)
+    };
   }
 
   function syncHiddenMainTurns(targets, context) {
@@ -1573,6 +1613,7 @@
     validateSelection,
     createTurnScanContext,
     getPendingResponseWatchTarget,
+    getAssistantWatchTarget,
     getConversationId,
     getTurnId,
     getMessageId,

@@ -51,6 +51,7 @@
       attachSelectionAction: CGQAChatGPTDom.attachSelectionAction,
       createTurnScanContext: CGQAChatGPTDom.createTurnScanContext,
       getPendingResponseWatchTarget: CGQAChatGPTDom.getPendingResponseWatchTarget,
+      getAssistantWatchTarget: CGQAChatGPTDom.getAssistantWatchTarget,
       getTurnId: CGQAChatGPTDom.getTurnId,
       getMessageId: CGQAChatGPTDom.getMessageId,
       renderThreadMark: CGQAChatGPTDom.renderThreadMark,

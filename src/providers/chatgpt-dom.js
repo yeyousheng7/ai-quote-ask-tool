@@ -1132,6 +1132,15 @@
     return document.body || document.documentElement;
   }
 
+  function getAssistantWatchTarget(signature, context) {
+    const turn = getAssistantTurnBySignature(signature, context);
+    if (!turn || !turn.isConnected) {
+      return null;
+    }
+    const markdowns = getResponseMarkdownNodes(turn, { mode: "stream" });
+    return markdowns[markdowns.length - 1] || turn;
+  }
+
   function getTurnsFromScanContext(context) {
     if (!context || !context.tailTurn || !context.tailTurn.isConnected) {
       return null;
@@ -1932,6 +1941,7 @@
     attachSelectionAction,
     createTurnScanContext,
     getPendingResponseWatchTarget,
+    getAssistantWatchTarget,
     getConversationId,
     getTurnId,
     getMessageId,

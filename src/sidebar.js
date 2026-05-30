@@ -8,6 +8,8 @@
   const INPUT_MAX_HEIGHT = 96;
   const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 24;
   const ATTACHED_SELECTION_BUTTON_CLASS = "cgqa-selection-attached-button";
+  const STREAM_FORMAT_MIN_INTERVAL_MS = 400;
+  const STREAM_FORMAT_MIN_TEXT_DELTA = 120;
 
   let panelPosition = readPanelPosition();
   let selectionCleanup = null;
@@ -100,9 +102,11 @@
     let autoScrollMessages = true;
     let streamingFrame = 0;
     let pendingStreamingUpdate = null;
+    let streamingRenderStates = new Map();
 
     function render(thread, options = {}) {
       cancelPendingStreamingUpdate();
+      clearStreamingRenderStates();
       if (!thread) {
         removePanel();
         root = null;
@@ -179,6 +183,7 @@
     function destroy() {
       window.removeEventListener("resize", handleResize);
       cancelPendingStreamingUpdate();
+      clearStreamingRenderStates();
       removePanel();
       root = null;
       input = null;
@@ -206,13 +211,7 @@
       if (!body) {
         return;
       }
-      if (update.html) {
-        replaceMessageBodyHtml(body, update.html, { sanitized: update.htmlSanitized });
-      } else if (update.markdown) {
-        replaceMessageBodyMarkdown(body, update.text);
-      } else {
-        replaceMessageBodyText(body, update.text);
-      }
+      applyMixedStreamingMessageUpdate(body, update);
       if (autoScrollMessages) {
         scrollMessagesToBottom(messages);
       }
@@ -224,6 +223,80 @@
         streamingFrame = 0;
       }
       pendingStreamingUpdate = null;
+    }
+
+    function clearStreamingRenderStates() {
+      streamingRenderStates.clear();
+    }
+
+    function getStreamingRenderState(update) {
+      const key = `${update.threadId}:${update.messageIndex}`;
+      let state = streamingRenderStates.get(key);
+      if (!state) {
+        state = {
+          lastFormattedText: "",
+          lastFormattedAt: 0,
+          formattedView: false
+        };
+        streamingRenderStates.set(key, state);
+      }
+      return state;
+    }
+
+    function applyMixedStreamingMessageUpdate(body, update) {
+      const state = getStreamingRenderState(update);
+      if (!hasFormattedStreamingPayload(update)) {
+        replaceMessageBodyText(body, update.text);
+        state.formattedView = false;
+        return;
+      }
+
+      if (shouldRenderFormattedStreamingUpdate(update, state)) {
+        renderFormattedStreamingUpdate(body, update, state);
+        return;
+      }
+
+      if (!state.formattedView) {
+        replaceMessageBodyText(body, update.text);
+      }
+    }
+
+    function hasFormattedStreamingPayload(update) {
+      return Boolean(update && (update.html || update.markdown));
+    }
+
+    function shouldRenderFormattedStreamingUpdate(update, state) {
+      const now = Date.now();
+      const text = update.text || "";
+      const textDelta = Math.abs(text.length - (state.lastFormattedText || "").length);
+      if (!state.lastFormattedAt) {
+        return text.length >= STREAM_FORMAT_MIN_TEXT_DELTA
+          || hasStreamingStructureBoundary(text, "");
+      }
+      return now - state.lastFormattedAt >= STREAM_FORMAT_MIN_INTERVAL_MS
+        || textDelta >= STREAM_FORMAT_MIN_TEXT_DELTA
+        || hasStreamingStructureBoundary(text, state.lastFormattedText || "");
+    }
+
+    function renderFormattedStreamingUpdate(body, update, state) {
+      try {
+        if (update.html) {
+          replaceMessageBodyHtml(body, update.html, { sanitized: update.htmlSanitized });
+        } else if (update.markdown) {
+          replaceMessageBodyMarkdown(body, update.text);
+        } else {
+          replaceMessageBodyText(body, update.text);
+          state.formattedView = false;
+          return;
+        }
+        state.lastFormattedText = update.text || "";
+        state.lastFormattedAt = Date.now();
+        state.formattedView = true;
+      } catch (error) {
+        console.warn("[CGQA] streaming formatted render failed", error);
+        replaceMessageBodyText(body, update.text);
+        state.formattedView = false;
+      }
     }
   }
 
@@ -346,6 +419,19 @@
 
   function scrollMessagesToBottom(messages) {
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  function hasStreamingStructureBoundary(text, previousText) {
+    const nextText = String(text || "");
+    const oldText = String(previousText || "");
+    const addedText = nextText.startsWith(oldText) ? nextText.slice(oldText.length) : nextText;
+    const sample = `${oldText.slice(-24)}${addedText}`;
+    return /\n\s*\n/.test(sample)
+      || /(^|\n)\s*```/.test(sample)
+      || /(^|\n)\s{0,3}#{1,6}\s+\S/.test(sample)
+      || /(^|\n)\s*([-*+]\s+|\d+[.)]\s+)/.test(sample)
+      || /(^|\n)\s*>\s+\S/.test(sample)
+      || /(^|\n)\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*($|\n)/.test(sample);
   }
 
   function getMessageBodyByIndex(messages, messageIndex) {

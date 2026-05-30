@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.35-stream-cleanup";
+  const CONTENT_VERSION = "0.7.37-mixed-render";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -21,6 +21,7 @@
     pendingSelection: null,
     pendingResponse: null,
     pendingCaptureObserver: null,
+    pendingCaptureWatchTarget: null,
     restoreTimers: [],
     locationCheckTimers: [],
     pendingCaptureTimer: 0,
@@ -1047,6 +1048,7 @@
       latestHtml: "",
       localCaptureMissCount: 0,
       localVisibilityMissCount: 0,
+      watchTargetSignature: "",
       startedAt: Date.now(),
     };
   }
@@ -1192,10 +1194,7 @@
       return;
     }
 
-    const sameCandidate = pending.candidate
-      && pending.candidate.signature === signature
-      && pending.candidate.text === candidate.text;
-    if (sameCandidate && state.pendingStableTimer) {
+    if (isSameStableCandidate(pending, signature, candidate) && state.pendingStableTimer) {
       return;
     }
 
@@ -1207,33 +1206,59 @@
         return;
       }
 
-      const latest = findAssistantRecordBySignature(signature, pending.scanContext, {
-        mode: "final"
-      }) || findPendingAssistantCandidate(thread);
+      const latest = readLatestPendingCandidate(signature, pending, thread);
       const text = latest ? latest.text : candidate.text;
-      if (!text || text === thread.quoteText) {
+      if (!canCompletePendingResponse(pending, thread, text)) {
         return;
       }
+
       if (isProviderResponseGenerating(pending.scanContext)) {
         scheduleStableCandidateCapture(thread, generating, latest || candidate);
         return;
       }
-      const latestHtml = latest && latest.htmlSanitized === false ? "" : latest && latest.html || "";
-      const candidateHtml = candidate.htmlSanitized === false ? "" : candidate.html || "";
-      const finalHtml = latestHtml || candidateHtml;
-      flushStreamingCandidate(thread, generating, text, finalHtml);
-      generating.content = text;
-      generating.html = finalHtml;
-      generating.contentFormat = generating.html ? "html" : "text";
-      generating.status = "completed";
-      const completedResponse = state.pendingResponse;
-      stopPendingCaptureWatcher();
-      await saveAndRenderThread(thread, { reason: "complete" });
-      await completeProviderPendingResponse(completedResponse);
-      state.pendingResponse = null;
-      unlockPendingScroll();
-      syncPanelDecorations();
+
+      await finalizePendingResponse(thread, generating, latest || null, candidate, text);
     }, RESPONSE_STABLE_DELAY_MS);
+  }
+
+  function isSameStableCandidate(pending, signature, candidate) {
+    return Boolean(
+      pending
+      && pending.candidate
+      && pending.candidate.signature === signature
+      && pending.candidate.text === candidate.text
+    );
+  }
+
+  function readLatestPendingCandidate(signature, pending, thread) {
+    return findAssistantRecordBySignature(signature, pending.scanContext, {
+      mode: "final"
+    }) || findPendingAssistantCandidate(thread);
+  }
+
+  function canCompletePendingResponse(pending, thread, text) {
+    if (!pending || !thread || !text || text === thread.quoteText) {
+      return false;
+    }
+    return true;
+  }
+
+  async function finalizePendingResponse(thread, generating, latest, candidate, text) {
+    const latestHtml = latest && latest.htmlSanitized === false ? "" : latest && latest.html || "";
+    const candidateHtml = candidate.htmlSanitized === false ? "" : candidate.html || "";
+    const finalHtml = latestHtml || candidateHtml;
+    flushStreamingCandidate(thread, generating, text, finalHtml);
+    generating.content = text;
+    generating.html = finalHtml;
+    generating.contentFormat = generating.html ? "html" : "text";
+    generating.status = "completed";
+    const completedResponse = state.pendingResponse;
+    stopPendingCaptureWatcher();
+    await saveAndRenderThread(thread, { reason: "complete" });
+    await completeProviderPendingResponse(completedResponse);
+    state.pendingResponse = null;
+    unlockPendingScroll();
+    syncPanelDecorations();
   }
 
   async function completeProviderPendingResponse(responseTracker) {
@@ -1262,6 +1287,7 @@
       });
       if (record && isUsableAssistantAnswer(record.text, thread)) {
         tracker.localCaptureMissCount = 0;
+        maybeNarrowPendingCaptureWatcher();
         return record;
       }
     }
@@ -1273,6 +1299,7 @@
     if (followupRecord) {
       tracker.assistantSignature = getAssistantRecordSignature(followupRecord);
       tracker.localCaptureMissCount = 0;
+      maybeNarrowPendingCaptureWatcher();
       return followupRecord;
     }
 
@@ -1290,6 +1317,7 @@
     const fullFollowupRecord = findAssistantRecordAfterPromptToken(thread, fullAssistantRecords, tracker.promptToken, fullTurnRecords);
     if (fullFollowupRecord) {
       tracker.assistantSignature = getAssistantRecordSignature(fullFollowupRecord);
+      maybeNarrowPendingCaptureWatcher();
       return fullFollowupRecord;
     }
     return null;
@@ -1313,10 +1341,62 @@
       capturePendingAssistantIfReady();
     }, 1000);
 
-    const watchTarget = getPendingResponseWatchTarget();
-    if (watchTarget) {
+    bindPendingCaptureObserver(getPendingResponseWatchTarget());
+  }
+
+  function bindPendingCaptureObserver(watchTarget) {
+    if (!watchTarget || watchTarget.nodeType !== Node.ELEMENT_NODE || !watchTarget.isConnected) {
+      return false;
+    }
+    if (state.pendingCaptureObserver && state.pendingCaptureWatchTarget === watchTarget) {
+      return true;
+    }
+    if (state.pendingCaptureObserver) {
+      state.pendingCaptureObserver.disconnect();
+      state.pendingCaptureObserver = null;
+      state.pendingCaptureWatchTarget = null;
+    }
+    try {
       state.pendingCaptureObserver = new MutationObserver(handlePendingMutation);
       state.pendingCaptureObserver.observe(watchTarget, { childList: true, subtree: true, characterData: true });
+      state.pendingCaptureWatchTarget = watchTarget;
+      return true;
+    } catch (error) {
+      console.warn("[CGQA] bind pending response watcher failed", error);
+      state.pendingCaptureObserver = null;
+      state.pendingCaptureWatchTarget = null;
+      return false;
+    }
+  }
+
+  function maybeNarrowPendingCaptureWatcher() {
+    const tracker = state.pendingResponse;
+    if (
+      !tracker
+      || !tracker.assistantSignature
+      || !provider
+      || typeof provider.getAssistantWatchTarget !== "function"
+    ) {
+      return;
+    }
+    if (
+      tracker.watchTargetSignature === tracker.assistantSignature
+      && state.pendingCaptureWatchTarget
+      && state.pendingCaptureWatchTarget.isConnected
+    ) {
+      return;
+    }
+
+    try {
+      const watchTarget = provider.getAssistantWatchTarget(tracker.assistantSignature, tracker.scanContext);
+      if (!watchTarget || watchTarget.nodeType !== Node.ELEMENT_NODE || !watchTarget.isConnected) {
+        return;
+      }
+      if (bindPendingCaptureObserver(watchTarget)) {
+        tracker.watchTargetSignature = tracker.assistantSignature;
+      }
+    } catch (error) {
+      console.warn("[CGQA] narrow pending response watcher failed", error);
     }
   }
 
@@ -1343,6 +1423,7 @@
       state.pendingCaptureObserver.disconnect();
       state.pendingCaptureObserver = null;
     }
+    state.pendingCaptureWatchTarget = null;
     if (state.pendingCaptureMutationTimer) {
       clearTimeout(state.pendingCaptureMutationTimer);
       state.pendingCaptureMutationTimer = 0;
