@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.14-send-visibility-option";
+  const CONTENT_VERSION = "0.7.35-stream-cleanup";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -25,6 +25,7 @@
     locationCheckTimers: [],
     pendingCaptureTimer: 0,
     pendingCaptureMutationTimer: 0,
+    pendingDecorationTimer: 0,
     pendingStableTimer: 0,
     active: false,
     creatingThread: false,
@@ -42,7 +43,9 @@
     activeCleanupTasks: []
   };
 
-  const RESPONSE_STABLE_DELAY_MS = 1400;
+  const RESPONSE_STABLE_DELAY_MS = 2500;
+  const PENDING_MUTATION_CAPTURE_DELAY_MS = 50;
+  const PENDING_DECORATION_SYNC_DELAY_MS = 250;
   const RESPONSE_TIMEOUT_MS = 120000;
   const RESTORE_DELAYS_MS = [250, 1000, 2500, 5000];
   const LOCATION_CHECK_DELAYS_MS = [0, 250, 1000];
@@ -215,7 +218,7 @@
         });
         loadReplyStyle().then((replyStyle) => {
           state.replyStyle = replyStyle;
-          sidebar && sidebar.render(getThread(state.activeThreadId) || null);
+          sidebar && sidebar.render(getThread(state.activeThreadId) || null, { reason: "update" });
         }).catch((error) => {
           console.error("[CGQA] apply changed reply style failed", error);
         });
@@ -349,9 +352,19 @@
     try {
       return await CGQAStorage.isProviderEnabled(providerId);
     } catch (error) {
+      if (isExtensionContextInvalidated(error)) {
+        console.warn("[CGQA] extension context invalidated; refresh the page to reload the helper.");
+        setTimeout(destroy, 0);
+        return false;
+      }
       console.error("[CGQA] load provider setting failed", error);
       return true;
     }
+  }
+
+  function isExtensionContextInvalidated(error) {
+    const message = String(error && (error.message || error.toString && error.toString()) || "");
+    return /extension context invalidated/i.test(message);
   }
 
   async function switchConversation() {
@@ -600,7 +613,7 @@
     state.activeThreadId = threadId;
     lockPendingScroll({ resetPosition: true });
     provider.setActiveMark(threadId);
-    sidebar.render(thread);
+    sidebar.render(thread, { reason: "open" });
     sidebar.focusInput();
     syncPanelDecorations();
   }
@@ -673,17 +686,17 @@
     return state.threads.find((thread) => thread.threadId === threadId);
   }
 
-  async function saveAndRenderThread(thread) {
+  async function saveAndRenderThread(thread, renderOptions = {}) {
     try {
       const savedThread = await CGQAStorage.saveThread(thread, getConversationMeta());
       replaceThread(savedThread);
-      renderSavedThread(savedThread);
+      renderSavedThread(savedThread, renderOptions);
       return savedThread;
     } catch (error) {
       console.error("[CGQA] save thread failed", error);
       CGQASidebar.showToast(getSaveThreadErrorMessage(error));
       replaceThread(thread);
-      renderSavedThread(thread);
+      renderSavedThread(thread, renderOptions);
       return thread;
     }
   }
@@ -705,12 +718,12 @@
     state.threads.push(nextThread);
   }
 
-  function renderSavedThread(thread) {
+  function renderSavedThread(thread, options = {}) {
     if (hasThreadStarted(thread)) {
       ensurePersistedThreadMark(thread, { notify: true });
     }
     if (thread.threadId === state.activeThreadId) {
-      sidebar.render(thread);
+      sidebar.render(thread, options);
     }
   }
 
@@ -804,7 +817,7 @@
     }
     if (state.pendingResponse || hasGeneratingMessage(thread)) {
       CGQASidebar.showToast("上一条追问仍在生成中，请稍后再发。");
-      renderSavedThread(thread);
+      renderSavedThread(thread, { reason: "update" });
       sidebar.focusInput();
       if (!state.pendingResponse) {
         unlockPanelScrollIfIdle();
@@ -830,14 +843,14 @@
     };
     thread.messages.push(userMessage, assistantMessage);
     const scanContext = createTurnScanContext();
-    state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken, scanContext);
+    state.pendingResponse = createResponseTracker(thread.threadId, mainChatItem.promptToken, scanContext, thread.messages.length - 1);
     if (shouldKeepProviderUiVisibleDuringSend()) {
       syncPanelDecorations();
     }
     lockPendingScroll();
 
     try {
-      await saveAndRenderThread(thread);
+      await saveAndRenderThread(thread, { reason: "send" });
       syncPageDecorations();
       startPendingCaptureWatcher();
       await provider.submitPrompt(buildPrompt(thread, question, mainChatItem.promptToken));
@@ -849,7 +862,7 @@
       clearPendingStableTimer();
       assistantMessage.content = error.message || "发送失败。";
       assistantMessage.status = "failed";
-      await saveAndRenderThread(thread);
+      await saveAndRenderThread(thread, { reason: "complete" });
       syncPageDecorations();
       syncPanelDecorations();
       CGQASidebar.showToast(assistantMessage.content);
@@ -1022,18 +1035,16 @@
     }
   }
 
-  function createResponseTracker(threadId, promptToken, scanContext) {
-    const baselineRecords = getAssistantMessageRecords(scanContext);
-    const baselineTextBySignature = {};
-    baselineRecords.forEach((record) => {
-      baselineTextBySignature[getAssistantRecordSignature(record)] = record.text || "";
-    });
+  function createResponseTracker(threadId, promptToken, scanContext, messageIndex) {
     return {
       threadId,
       promptToken,
       scanContext: scanContext || null,
-      baselineTextBySignature,
+      messageIndex: Number.isInteger(messageIndex) ? messageIndex : -1,
+      assistantSignature: "",
       candidate: null,
+      latestText: "",
+      latestHtml: "",
       localCaptureMissCount: 0,
       localVisibilityMissCount: 0,
       startedAt: Date.now(),
@@ -1100,7 +1111,7 @@
       stopPendingCaptureWatcher();
       unlockPendingScroll();
       clearPendingStableTimer();
-      saveAndRenderThread(thread).then(syncPageDecorations).catch((error) => {
+      saveAndRenderThread(thread, { reason: "complete" }).then(syncPageDecorations).catch((error) => {
         console.error("[CGQA] save timeout state failed", error);
       });
       syncPanelDecorations();
@@ -1112,7 +1123,66 @@
       return;
     }
 
+    applyStreamingCandidate(thread, generating, candidate);
     scheduleStableCandidateCapture(thread, generating, candidate);
+  }
+
+  function applyStreamingCandidate(thread, generating, candidate) {
+    const tracker = state.pendingResponse;
+    const text = candidate && candidate.text || "";
+    if (!tracker || !text || text === thread.quoteText || !isUsableAssistantAnswer(text, thread)) {
+      return;
+    }
+
+    const html = candidate && candidate.html || "";
+    const htmlSanitized = !candidate || candidate.htmlSanitized !== false;
+    if (text === tracker.latestText && html === tracker.latestHtml) {
+      return;
+    }
+
+    tracker.latestText = text;
+    tracker.latestHtml = html;
+    generating.content = text;
+    generating.html = htmlSanitized ? html : "";
+    generating.contentFormat = htmlSanitized && html ? "html" : "text";
+    generating.status = "generating";
+    updateStreamingMessage(thread, generating, createStreamingDisplayUpdate(text, html, { htmlSanitized }));
+  }
+
+  function flushStreamingCandidate(thread, generating, text, html) {
+    const tracker = state.pendingResponse;
+    if (!tracker) {
+      return;
+    }
+    tracker.latestText = text || tracker.latestText || "";
+    tracker.latestHtml = html || tracker.latestHtml || "";
+    generating.content = tracker.latestText;
+    updateStreamingMessage(
+      thread,
+      generating,
+      createStreamingDisplayUpdate(generating.content, tracker.latestHtml, {
+        htmlSanitized: true
+      })
+    );
+  }
+
+  function createStreamingDisplayUpdate(text, html, options = {}) {
+    if (html) {
+      return { text, html, htmlSanitized: options.htmlSanitized !== false };
+    }
+    return { text, markdown: true };
+  }
+
+  function updateStreamingMessage(thread, generating, update) {
+    const tracker = state.pendingResponse;
+    if (!tracker || !thread || thread.threadId !== state.activeThreadId || !sidebar) {
+      return;
+    }
+    if (typeof sidebar.updateStreamingMessage !== "function") {
+      renderSavedThread(thread, { reason: "update" });
+      return;
+    }
+    sidebar.updateStreamingMessage(thread.threadId, tracker.messageIndex, update || generating.content || "");
   }
 
   function scheduleStableCandidateCapture(thread, generating, candidate) {
@@ -1137,18 +1207,28 @@
         return;
       }
 
-      const latest = findAssistantRecordBySignature(signature, pending.scanContext) || findPendingAssistantCandidate(thread);
+      const latest = findAssistantRecordBySignature(signature, pending.scanContext, {
+        mode: "final"
+      }) || findPendingAssistantCandidate(thread);
       const text = latest ? latest.text : candidate.text;
-      if (!text || text === generating.content || text === thread.quoteText) {
+      if (!text || text === thread.quoteText) {
         return;
       }
+      if (isProviderResponseGenerating(pending.scanContext)) {
+        scheduleStableCandidateCapture(thread, generating, latest || candidate);
+        return;
+      }
+      const latestHtml = latest && latest.htmlSanitized === false ? "" : latest && latest.html || "";
+      const candidateHtml = candidate.htmlSanitized === false ? "" : candidate.html || "";
+      const finalHtml = latestHtml || candidateHtml;
+      flushStreamingCandidate(thread, generating, text, finalHtml);
       generating.content = text;
-      generating.html = latest && latest.html || candidate.html || "";
+      generating.html = finalHtml;
       generating.contentFormat = generating.html ? "html" : "text";
       generating.status = "completed";
       const completedResponse = state.pendingResponse;
       stopPendingCaptureWatcher();
-      await saveAndRenderThread(thread);
+      await saveAndRenderThread(thread, { reason: "complete" });
       await completeProviderPendingResponse(completedResponse);
       state.pendingResponse = null;
       unlockPendingScroll();
@@ -1176,19 +1256,24 @@
       return null;
     }
 
+    if (tracker.assistantSignature) {
+      const record = findAssistantRecordBySignature(tracker.assistantSignature, tracker.scanContext, {
+        mode: "stream"
+      });
+      if (record && isUsableAssistantAnswer(record.text, thread)) {
+        tracker.localCaptureMissCount = 0;
+        return record;
+      }
+    }
+
     const scanContext = tracker.localCaptureMissCount < 4 ? tracker.scanContext : null;
-    const records = getAssistantMessageRecords(scanContext);
+    const records = getAssistantMessageRecords(scanContext, { mode: "stream" });
     const turnRecords = getAllTurnRecords(scanContext);
     const followupRecord = findAssistantRecordAfterPromptToken(thread, records, tracker.promptToken, turnRecords);
     if (followupRecord) {
+      tracker.assistantSignature = getAssistantRecordSignature(followupRecord);
       tracker.localCaptureMissCount = 0;
       return followupRecord;
-    }
-
-    const changedRecord = findChangedAssistantRecord(thread, records, tracker.baselineTextBySignature);
-    if (changedRecord) {
-      tracker.localCaptureMissCount = 0;
-      return changedRecord;
     }
 
     if (scanContext) {
@@ -1198,13 +1283,28 @@
       }
     }
 
-    const fullAssistantRecords = scanContext ? getAssistantMessageRecords(null) : records;
+    const fullAssistantRecords = scanContext
+      ? getAssistantMessageRecords(null, { mode: "stream" })
+      : records;
     const fullTurnRecords = scanContext ? getAllTurnRecords(null) : turnRecords;
     const fullFollowupRecord = findAssistantRecordAfterPromptToken(thread, fullAssistantRecords, tracker.promptToken, fullTurnRecords);
-    if (fullFollowupRecord || scanContext) {
+    if (fullFollowupRecord) {
+      tracker.assistantSignature = getAssistantRecordSignature(fullFollowupRecord);
       return fullFollowupRecord;
     }
-    return findChangedAssistantRecord(thread, fullAssistantRecords, tracker.baselineTextBySignature);
+    return null;
+  }
+
+  function isProviderResponseGenerating(scanContext) {
+    if (!provider || typeof provider.isResponseGenerating !== "function") {
+      return false;
+    }
+    try {
+      return Boolean(provider.isResponseGenerating(scanContext || null));
+    } catch (error) {
+      console.warn("[CGQA] response generation state check failed", error);
+      return false;
+    }
   }
 
   function startPendingCaptureWatcher() {
@@ -1247,18 +1347,46 @@
       clearTimeout(state.pendingCaptureMutationTimer);
       state.pendingCaptureMutationTimer = 0;
     }
+    clearPendingDecorationTimer();
   }
 
   function handlePendingMutation() {
-    if (!state.pendingResponse || state.pendingCaptureMutationTimer) {
+    if (!state.pendingResponse) {
       return;
     }
 
+    schedulePendingCapture();
+    schedulePendingDecorationSync();
+  }
+
+  function schedulePendingCapture() {
+    if (state.pendingCaptureMutationTimer) {
+      return;
+    }
     state.pendingCaptureMutationTimer = setTimeout(() => {
       state.pendingCaptureMutationTimer = 0;
       capturePendingAssistantIfReady();
-      syncPageDecorations();
-    }, 120);
+    }, PENDING_MUTATION_CAPTURE_DELAY_MS);
+  }
+
+  function schedulePendingDecorationSync() {
+    if (state.pendingDecorationTimer) {
+      return;
+    }
+    state.pendingDecorationTimer = setTimeout(() => {
+      state.pendingDecorationTimer = 0;
+      if (state.pendingResponse) {
+        syncPageDecorations();
+      }
+    }, PENDING_DECORATION_SYNC_DELAY_MS);
+  }
+
+  function clearPendingDecorationTimer() {
+    if (!state.pendingDecorationTimer) {
+      return;
+    }
+    clearTimeout(state.pendingDecorationTimer);
+    state.pendingDecorationTimer = 0;
   }
 
   function clearPendingStableTimer() {
@@ -1267,17 +1395,6 @@
     }
     clearTimeout(state.pendingStableTimer);
     state.pendingStableTimer = 0;
-  }
-
-  function findChangedAssistantRecord(thread, records, baselineTextBySignature) {
-    return [...records].reverse().find((record) => {
-      if (!record.text || !isUsableAssistantAnswer(record.text, thread)) {
-        return false;
-      }
-
-      const signature = getAssistantRecordSignature(record);
-      return record.text !== (baselineTextBySignature && baselineTextBySignature[signature] || "");
-    }) || null;
   }
 
   function findAssistantRecordAfterPromptToken(thread, assistantRecords, promptToken, turnRecords) {
@@ -1296,10 +1413,14 @@
       if (record.role === "user") {
         return null;
       }
-      if (record.role !== "assistant" || !isUsableAssistantAnswer(record.text, thread)) {
+      if (record.role !== "assistant") {
         continue;
       }
-      return findMatchingAssistantRecord(record, assistantRecords) || record;
+      const assistantRecord = findMatchingAssistantRecord(record, assistantRecords) || record;
+      if (!isUsableAssistantAnswer(assistantRecord.text, thread)) {
+        continue;
+      }
+      return assistantRecord;
     }
 
     return null;
@@ -1341,7 +1462,7 @@
     message.contentFormat = nextHtml ? "html" : "text";
     message.status = "completed";
     thread.updatedAt = Date.now();
-    await saveAndRenderThread(thread);
+    await saveAndRenderThread(thread, { reason: "complete" });
     syncPageDecorations();
     CGQASidebar.showToast("已重新获取回复。");
   }
@@ -1377,23 +1498,24 @@
     }) || null;
   }
 
-  function findAssistantRecordBySignature(signature, scanContext) {
-    const local = scanContext ? getAssistantMessageRecords(scanContext).find((record) => {
+  function findAssistantRecordBySignature(signature, scanContext, options = {}) {
+    const recordOptions = { ...options, signature };
+    const local = scanContext ? getAssistantMessageRecords(scanContext, recordOptions).find((record) => {
       return getAssistantRecordSignature(record) === signature;
     }) : null;
     if (local) {
       return local;
     }
-    return getAssistantMessageRecords(null).find((record) => {
+    return getAssistantMessageRecords(null, recordOptions).find((record) => {
       return getAssistantRecordSignature(record) === signature;
     });
   }
 
-  function getAssistantMessageRecords(scanContext) {
+  function getAssistantMessageRecords(scanContext, options = {}) {
     if (!provider || typeof provider.getAssistantMessageRecords !== "function") {
       return [];
     }
-    return provider.getAssistantMessageRecords(scanContext || null) || [];
+    return provider.getAssistantMessageRecords(scanContext || null, options) || [];
   }
 
   function getAllTurnRecords(scanContext) {
@@ -1501,7 +1623,15 @@
     if (state.active) {
       deactivateProvider();
     }
-    state.cleanupTasks.splice(0).forEach((cleanup) => cleanup());
+    state.cleanupTasks.splice(0).forEach((cleanup) => {
+      try {
+        cleanup();
+      } catch (error) {
+        if (!isExtensionContextInvalidated(error)) {
+          console.warn("[CGQA] cleanup failed", error);
+        }
+      }
+    });
   }
 
   globalThis[RUNTIME_KEY] = {

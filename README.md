@@ -73,6 +73,8 @@ The popup also includes `整理当前页面`, which asks the active supported ta
 - Follow-up questions are sent through the provider's normal web composer.
 - The generated prompt includes the selected quote and the user's question as context.
 - The generated prompt treats panel questions as isolated annotation side questions. It asks the provider to answer from the current quote and user question, only lightly using surrounding main text when necessary, and to ignore earlier quote-marked side questions.
+- While the provider is generating, the sidebar mirrors the current assistant DOM response as a streaming runtime preview.
+- Streaming fragments are not written to storage. Only the final stable reply is saved with its completed text/HTML.
 - Plugin-generated main-chat prompts and model replies are hidden from the main page while the quote thread exists.
 - The latest active thread reply is kept hidden, not unloaded, while the panel is open so the refresh button can re-read it from the page DOM.
 - When the panel is closed after a reply has been captured, hidden main-chat DOM can be unloaded to reduce page cost.
@@ -80,6 +82,17 @@ The popup also includes `整理当前页面`, which asks the active supported ta
 - The manual refresh button re-extracts the corresponding assistant reply from the provider page DOM and updates the saved sidebar message when newer or fuller content is available.
 - The refresh button does not resend the question.
 - The popup `整理当前页面` command is a manual recovery path for occasional provider/plugin timing conflicts where quote marks or hidden temporary messages are not restored correctly.
+
+## Streaming Capture Notes
+
+- Pending-response capture is local-scan-first with a full-page scan fallback. `src/content.js` creates and passes the runtime scan context, while provider DOM drivers decide the actual local DOM boundary.
+- Provider selectors must stay inside `src/providers/*-dom.js`. Do not move ChatGPT, Gemini, or DeepSeek DOM selectors into `src/content.js`.
+- After a pending assistant reply is identified, capture should prefer its stable assistant signature instead of repeatedly rediscovering the reply from the full turn list. This avoids cross-thread mixups and keeps streaming updates lightweight.
+- The sidebar streaming path updates the current generating assistant message body directly. It should not repaint the whole panel for every stream update.
+- During streaming, the sidebar follows the bottom only while the user is already near the bottom. If the user scrolls away, streaming content may keep growing without forcing `scrollTop` back to the bottom. Sending the next follow-up resets the default follow-bottom behavior.
+- Final completion must wait for stable candidate content and, when the provider can report it, a finished provider generation state. Short text pauses during model generation are not enough to mark the reply completed.
+- If streaming becomes chunky again, first check whether local scan is missing the new assistant node and falling back to full scans. Tune timing values only after the DOM boundary and assistant signature path are confirmed.
+- Smooth streaming on one provider means the current DOM path works for the tested page shape; it is not a reason to generalize provider-specific selectors into shared code.
 
 ## Provider-specific Behavior
 
@@ -92,6 +105,9 @@ The popup also includes `整理当前页面`, which asks the active supported ta
 - Assistant capture ignores transient status labels such as `正在思考`, `Thinking`, `Reasoning`, and `ChatGPT 说:`.
 - The plugin hides ChatGPT thought controls that belong to plugin-generated hidden turns.
 - The page scroll lock targets ChatGPT's internal `group/scroll-root` container rather than `window`.
+- Pending-response local scan starts from ChatGPT's internal scroll root when available, then falls back to `main` or narrower ancestors. The broader root is intentional because new turns may not be siblings under the previous tail turn's direct parent.
+- ChatGPT streaming prefers the last useful Markdown segment in an assistant turn, especially for thinking-model turns with multiple Markdown blocks. Final capture still re-reads the completed reply through the full sanitizer path.
+- The ChatGPT local scan root must remain short-lived, tail-bounded, and tied to pending-response capture. Do not turn it into a permanent broad observer.
 
 ### Gemini
 
@@ -99,7 +115,8 @@ The popup also includes `整理当前页面`, which asks the active supported ta
 - Uses Gemini-specific DOM selectors for turns, messages, composer, send button, and assistant extraction.
 - Uses the shared pending input blocker and scroll lock.
 - The page scroll lock targets Gemini's `infinite-scroller.chat-history` container.
-- Includes Gemini-specific pending cleanup for the native stop button/input state.
+- Gemini local pending scan is based on newly added conversation containers after the recorded tail container.
+- Gemini pending cleanup only restores input state; it must not click a native stop button during normal completion.
 - Manual reply refresh is available in the same panel UI as ChatGPT.
 
 ### DeepSeek
@@ -111,6 +128,8 @@ The popup also includes `整理当前页面`, which asks the active supported ta
 - Complete formula selections are allowed as quote-only threads, but DeepSeek formula marks are not rendered. This avoids mutating KaTeX/math DOM that DeepSeek's frontend framework manages strictly.
 - Partial formula selections are rejected.
 - During a panel-sent pending response, DeepSeek thinking controls and thinking content are hidden while the sidebar captures the final answer.
+- DeepSeek local pending scan is based on newly added virtual-list items. Because virtual-list DOM is less stable, fallback to full scan should stay conservative.
+- DeepSeek completion cleanup must not click the native stop button. It should only clear prompt/input side effects that belong to the plugin.
 - DeepSeek formula DOM is a known unstable area. If a page has already crashed after previous formula-marking experiments, refresh the conversation to restore a clean provider DOM before testing again.
 
 ## Reply Style And Theme

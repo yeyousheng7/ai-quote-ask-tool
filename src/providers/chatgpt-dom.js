@@ -31,6 +31,7 @@
     "[data-testid^='conversation-turn-'][data-turn]",
     "[data-message-author-role]"
   ].join(",");
+  const MARKDOWN_SELECTOR = ".markdown.prose, .markdown-new-styling, .markdown";
   const inputBlocker = CGQAProviderInputBlocker.create({
     getTarget: () => getComposerContainer(),
     isTargetHidden: (target) => target.classList.contains(HIDDEN_COMPOSER_CLASS)
@@ -116,10 +117,10 @@
 
   function getMarkdownNodes(turn) {
     const markdowns = getMessageNodesByRole(turn, "assistant").flatMap((message) => {
-      return Array.from(message.querySelectorAll(".markdown.prose, .markdown-new-styling, .markdown"));
+      return Array.from(message.querySelectorAll(MARKDOWN_SELECTOR));
     });
     return markdowns.filter((markdown) => {
-      return !markdown.parentElement || !markdown.parentElement.closest(".markdown.prose, .markdown-new-styling, .markdown");
+      return !markdown.parentElement || !markdown.parentElement.closest(MARKDOWN_SELECTOR);
     });
   }
 
@@ -241,6 +242,12 @@
     const clone = root.cloneNode(true);
     prepareReadableClone(clone);
     return normalizeText(clone.innerText || clone.textContent || "");
+  }
+
+  function getFastReadableText(root) {
+    const clone = root.cloneNode(true);
+    removeNonContentNodes(clone);
+    return normalizeText(clone.textContent || "");
   }
 
   function prepareReadableClone(root) {
@@ -1082,9 +1089,12 @@
   function getAllTurns(root = document) {
     const sectionTurns = queryElements(root, "section[data-testid^='conversation-turn-'][data-turn], section[data-turn]")
       .map(getTurnContainerForMessageNode);
+    if (sectionTurns.length) {
+      return sortElementsByDocumentOrder(uniqueElements(sectionTurns));
+    }
     const messageTurns = queryElements(root, "[data-message-author-role='user'], [data-message-author-role='assistant']")
       .map(getTurnContainerForMessageNode);
-    return sortElementsByDocumentOrder(uniqueElements([...sectionTurns, ...messageTurns]));
+    return sortElementsByDocumentOrder(uniqueElements(messageTurns));
   }
 
   function createTurnScanContext() {
@@ -1092,9 +1102,27 @@
     const tailTurn = turns[turns.length - 1] || null;
     return {
       tailTurn,
-      container: tailTurn && tailTurn.parentElement || document.body || document.documentElement,
+      container: getTurnScanContainer(tailTurn),
       createdAt: Date.now()
     };
+  }
+
+  function getTurnScanContainer(tailTurn) {
+    const candidates = [
+      getChatScrollRoot(),
+      tailTurn && tailTurn.closest("main"),
+      document.querySelector("main"),
+      tailTurn && tailTurn.parentElement,
+      document.body,
+      document.documentElement
+    ];
+
+    return candidates.find((node) => {
+      if (!node || !node.isConnected) {
+        return false;
+      }
+      return !tailTurn || node === tailTurn || node.contains(tailTurn);
+    }) || document.body || document.documentElement;
   }
 
   function getPendingResponseWatchTarget(context) {
@@ -1115,8 +1143,7 @@
       return null;
     }
     const turns = getAllTurns(container).filter((turn) => {
-      return turn === context.tailTurn
-        || Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
     return turns.length ? turns : null;
   }
@@ -1129,34 +1156,90 @@
     const role = getTurnRole(turn);
     const message = getMessageNodeByRole(turn, role) || turn;
     if (role === "assistant") {
-      return getMarkdownText(getMarkdownNodes(turn));
+      return getMarkdownText(getResponseMarkdownNodes(turn), { mode: "final" });
     }
     return getReadableText(message).trim();
   }
 
-  function getMarkdownText(markdowns) {
-    return markdowns.map((markdown) => getReadableText(markdown).trim()).filter(Boolean).join("\n\n");
+  function getResponseMarkdownNodes(turn, options = {}) {
+    return selectResponseMarkdownNodes(getMarkdownNodes(turn), options);
   }
 
-  function getMarkdownHtml(markdowns) {
+  function selectResponseMarkdownNodes(markdowns, options = {}) {
+    if (markdowns.length <= 1) {
+      return markdowns;
+    }
+
+    const lastMarkdown = markdowns[markdowns.length - 1];
+    if (options.mode === "stream") {
+      return [lastMarkdown];
+    }
+
+    const terminalGroup = getTerminalMarkdownGroup(markdowns);
+    return terminalGroup.length ? terminalGroup : [lastMarkdown];
+  }
+
+  function getTerminalMarkdownGroup(markdowns) {
+    const lastMarkdown = markdowns[markdowns.length - 1];
+    const parent = lastMarkdown && lastMarkdown.parentElement;
+    if (!parent) {
+      return lastMarkdown ? [lastMarkdown] : [];
+    }
+
+    const group = [];
+    for (let index = markdowns.length - 1; index >= 0; index -= 1) {
+      const markdown = markdowns[index];
+      if (markdown.parentElement !== parent) {
+        break;
+      }
+      group.unshift(markdown);
+    }
+
+    return group.length > 1 && group.length < markdowns.length ? group : [lastMarkdown];
+  }
+
+  function getMarkdownText(markdowns, options = {}) {
+    const readText = options.mode === "stream" ? getFastReadableText : getReadableText;
+    return markdowns.map((markdown) => readText(markdown).trim()).filter(Boolean).join("\n\n");
+  }
+
+  function getMarkdownHtml(markdowns, options = {}) {
+    if (options.mode === "stream") {
+      return markdowns.map((markdown) => markdown.innerHTML || "").filter(Boolean).join("");
+    }
     return markdowns.map((markdown) => getSanitizedHtml(markdown)).filter(Boolean).join("");
+  }
+
+  function buildAssistantMessageRecord(turn, index, options = {}) {
+    const message = getMessageNode(turn);
+    const markdowns = getResponseMarkdownNodes(turn, options);
+    const text = getMarkdownText(markdowns, options);
+    const html = getMarkdownHtml(markdowns, options);
+    return {
+      index,
+      turn,
+      turnId: getTurnId(turn),
+      messageId: getMessageIdFromNode(message),
+      text,
+      html,
+      htmlSanitized: options.mode !== "stream",
+      contentFormat: html ? "html" : "text"
+    };
   }
 
   function buildAllTurnRecords(turns) {
     return turns.map((turn, index) => {
       const role = getTurnRole(turn);
       const message = getMessageNodeByRole(turn, role);
-      const markdowns = role === "assistant" ? getMarkdownNodes(turn) : [];
-      const html = getMarkdownHtml(markdowns);
       return {
         index,
         turn,
         role,
         turnId: getTurnId(turn),
         messageId: getMessageIdFromNode(message),
-        text: getTurnText(turn),
-        html,
-        contentFormat: html ? "html" : "text"
+        text: role === "user" ? getTurnText(turn) : "",
+        html: "",
+        contentFormat: "text"
       };
     }).filter((record) => record.role && record.turn);
   }
@@ -1168,9 +1251,12 @@
   function getAssistantTurns() {
     const sectionTurns = Array.from(document.querySelectorAll("section[data-turn='assistant']"))
       .map(getTurnContainerForMessageNode);
+    if (sectionTurns.length) {
+      return sortElementsByDocumentOrder(uniqueElements(sectionTurns));
+    }
     const messageTurns = Array.from(document.querySelectorAll("[data-message-author-role='assistant']"))
       .map(getTurnContainerForMessageNode);
-    return sortElementsByDocumentOrder(uniqueElements([...sectionTurns, ...messageTurns]));
+    return sortElementsByDocumentOrder(uniqueElements(messageTurns));
   }
 
   function getUserTurnCount() {
@@ -1200,22 +1286,70 @@
     });
   }
 
-  function getAssistantMessageRecords(context) {
+  function getAssistantTurnBySignature(signature, context) {
+    const parsed = parseAssistantRecordSignature(signature);
+    if (!parsed) {
+      return null;
+    }
+
+    if (parsed.type === "message") {
+      const message = document.querySelector(`[data-message-author-role='assistant'][data-message-id='${CSS.escape(parsed.value)}']`);
+      const turn = message ? getTurnContainerForMessageNode(message) : null;
+      return isAssistantTurnInScanScope(turn, context) ? turn : null;
+    }
+
+    const turns = context ? getTurnScope(context) : getAssistantTurns();
+    if (parsed.type === "turn") {
+      return turns.find((turn) => getTurnId(turn) === parsed.value && getTurnRole(turn) === "assistant") || null;
+    }
+
+    if (parsed.type === "index") {
+      const index = Number(parsed.value);
+      const assistantTurns = turns.filter((turn) => getTurnRole(turn) === "assistant");
+      return Number.isInteger(index) ? assistantTurns[index] || null : null;
+    }
+
+    return null;
+  }
+
+  function parseAssistantRecordSignature(signature) {
+    const text = String(signature || "");
+    const separatorIndex = text.indexOf(":");
+    if (separatorIndex <= 0) {
+      return null;
+    }
+    return {
+      type: text.slice(0, separatorIndex),
+      value: text.slice(separatorIndex + 1)
+    };
+  }
+
+  function isAssistantTurnInScanScope(turn, context) {
+    if (!turn || getTurnRole(turn) !== "assistant") {
+      return false;
+    }
+    if (!context) {
+      return true;
+    }
+    if (context.container && context.container.isConnected && !context.container.contains(turn)) {
+      return false;
+    }
+    if (!context.tailTurn || !context.tailTurn.isConnected) {
+      return false;
+    }
+    return Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  function getAssistantMessageRecords(context, options = {}) {
+    if (options.signature) {
+      const turn = getAssistantTurnBySignature(options.signature, context);
+      const record = turn ? buildAssistantMessageRecord(turn, 0, options) : null;
+      return record && record.text ? [record] : [];
+    }
+
     const turns = context ? getTurnScope(context).filter((turn) => getTurnRole(turn) === "assistant") : getAssistantTurns();
     return turns.map((turn, index) => {
-      const message = getMessageNode(turn);
-      const markdowns = getMarkdownNodes(turn);
-      const text = getMarkdownText(markdowns);
-      const html = getMarkdownHtml(markdowns);
-      return {
-        index,
-        turn,
-        turnId: getTurnId(turn),
-        messageId: getMessageIdFromNode(message),
-        text,
-        html,
-        contentFormat: html ? "html" : "text"
-      };
+      return buildAssistantMessageRecord(turn, index, options);
     }).filter((record) => record.text);
   }
 
@@ -1400,8 +1534,11 @@
   }
 
   function getScrollContainer() {
-    const chatScrollRoot = Array.from(document.querySelectorAll("[class*='group/scroll-root']")).find(isScrollableElement);
-    return chatScrollRoot || document.scrollingElement || document.documentElement;
+    return getChatScrollRoot() || document.scrollingElement || document.documentElement;
+  }
+
+  function getChatScrollRoot() {
+    return Array.from(document.querySelectorAll("[class*='group/scroll-root']")).find(isScrollableElement) || null;
   }
 
   function isScrollableElement(element) {
@@ -1455,6 +1592,14 @@
     inputBlocker.setBlocked(Boolean(state && state.active));
   }
 
+  function isResponseGenerating() {
+    return getNativeGenerationControlCandidates().length > 0;
+  }
+
+  async function completePendingResponse() {
+    // ChatGPT does not need provider-specific cleanup after capture.
+  }
+
   function getNativeGenerationControlCandidates() {
     const nodes = Array.from(document.querySelectorAll([
       "button",
@@ -1492,7 +1637,7 @@
   }
 
   function isGenerationControlText(text) {
-    return /停止|stop/.test(text) && /流式|stream|生成|generat/.test(text);
+    return /停止|stop/.test(text);
   }
 
   function hideNativeGenerationControl(node) {
@@ -1804,6 +1949,8 @@
     setMainComposerHidden,
     setNativeGenerationControlsHidden,
     syncPendingResponseState,
+    isResponseGenerating,
+    completePendingResponse,
     getScrollContainer,
     submitPrompt
   };

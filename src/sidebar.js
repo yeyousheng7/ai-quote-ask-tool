@@ -6,6 +6,7 @@
   const PANEL_DEFAULT_RIGHT = 28;
   const PANEL_DEFAULT_TOP = 140;
   const INPUT_MAX_HEIGHT = 96;
+  const MESSAGE_SCROLL_BOTTOM_THRESHOLD = 24;
   const ATTACHED_SELECTION_BUTTON_CLASS = "cgqa-selection-attached-button";
 
   let panelPosition = readPanelPosition();
@@ -95,17 +96,39 @@
   function buildSidebar(callbacks) {
     let root = null;
     let input = null;
+    let activeThreadId = "";
+    let autoScrollMessages = true;
+    let streamingFrame = 0;
+    let pendingStreamingUpdate = null;
 
-    function render(thread) {
+    function render(thread, options = {}) {
+      cancelPendingStreamingUpdate();
       if (!thread) {
         removePanel();
         root = null;
         input = null;
+        activeThreadId = "";
+        autoScrollMessages = true;
         return;
+      }
+
+      const previousMessages = root && root.querySelector(".cgqa-messages");
+      const scrollSnapshot = getMessageScrollSnapshot(previousMessages);
+      const sameThread = activeThreadId === thread.threadId;
+      const reason = options.reason || "update";
+      if (!sameThread || reason === "open" || reason === "send") {
+        autoScrollMessages = true;
       }
 
       root = createPanel(callbacks, thread);
       input = root.querySelector(".cgqa-input");
+      activeThreadId = thread.threadId;
+      bindMessageScrollState(root.querySelector(".cgqa-messages"));
+      applyMessageScrollState(root.querySelector(".cgqa-messages"), scrollSnapshot, {
+        sameThread,
+        reason,
+        shouldAutoScroll: autoScrollMessages
+      });
       syncPanelToViewport(root);
     }
 
@@ -124,6 +147,29 @@
       return Boolean(root && root.isConnected);
     }
 
+    function updateStreamingMessage(threadId, messageIndex, update) {
+      if (!root || !root.isConnected || threadId !== activeThreadId) {
+        return false;
+      }
+      pendingStreamingUpdate = {
+        threadId,
+        messageIndex,
+        ...normalizeStreamingUpdate(update)
+      };
+      if (streamingFrame) {
+        return true;
+      }
+      streamingFrame = requestAnimationFrame(() => {
+        streamingFrame = 0;
+        const update = pendingStreamingUpdate;
+        pendingStreamingUpdate = null;
+        if (update) {
+          applyStreamingMessageUpdate(update);
+        }
+      });
+      return true;
+    }
+
     function handleResize() {
       if (root && root.isConnected) {
         syncPanelToViewport(root);
@@ -132,6 +178,7 @@
 
     function destroy() {
       window.removeEventListener("resize", handleResize);
+      cancelPendingStreamingUpdate();
       removePanel();
       root = null;
       input = null;
@@ -139,7 +186,45 @@
 
     window.addEventListener("resize", handleResize);
 
-    return { render, focusInput, isOpen, destroy };
+    return { render, focusInput, isOpen, updateStreamingMessage, destroy };
+
+    function bindMessageScrollState(messages) {
+      if (!messages) {
+        return;
+      }
+      messages.addEventListener("scroll", () => {
+        autoScrollMessages = isMessageScrollNearBottom(messages);
+      }, { passive: true });
+    }
+
+    function applyStreamingMessageUpdate(update) {
+      if (!root || !root.isConnected || update.threadId !== activeThreadId) {
+        return;
+      }
+      const messages = root.querySelector(".cgqa-messages");
+      const body = getMessageBodyByIndex(messages, update.messageIndex);
+      if (!body) {
+        return;
+      }
+      if (update.html) {
+        replaceMessageBodyHtml(body, update.html, { sanitized: update.htmlSanitized });
+      } else if (update.markdown) {
+        replaceMessageBodyMarkdown(body, update.text);
+      } else {
+        replaceMessageBodyText(body, update.text);
+      }
+      if (autoScrollMessages) {
+        scrollMessagesToBottom(messages);
+      }
+    }
+
+    function cancelPendingStreamingUpdate() {
+      if (streamingFrame) {
+        cancelAnimationFrame(streamingFrame);
+        streamingFrame = 0;
+      }
+      pendingStreamingUpdate = null;
+    }
   }
 
   function createPanel(callbacks, thread) {
@@ -223,8 +308,138 @@
     appendOverlayRoot(panel);
     autoResizeInput(input);
     updateSendState(input, send, inputDisabled);
-    messages.scrollTop = messages.scrollHeight;
     return panel;
+  }
+
+  function getMessageScrollSnapshot(messages) {
+    if (!messages) {
+      return null;
+    }
+    return {
+      top: messages.scrollTop,
+      nearBottom: isMessageScrollNearBottom(messages)
+    };
+  }
+
+  function applyMessageScrollState(messages, snapshot, options = {}) {
+    if (!messages) {
+      return;
+    }
+
+    const forceBottom = !options.sameThread || options.reason === "open" || options.reason === "send";
+    if (forceBottom || options.shouldAutoScroll || snapshot && snapshot.nearBottom) {
+      scrollMessagesToBottom(messages);
+      return;
+    }
+
+    if (snapshot) {
+      messages.scrollTop = Math.min(snapshot.top, messages.scrollHeight);
+    }
+  }
+
+  function isMessageScrollNearBottom(messages) {
+    if (!messages) {
+      return true;
+    }
+    return messages.scrollHeight - messages.scrollTop - messages.clientHeight <= MESSAGE_SCROLL_BOTTOM_THRESHOLD;
+  }
+
+  function scrollMessagesToBottom(messages) {
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function getMessageBodyByIndex(messages, messageIndex) {
+    if (!messages || !Number.isInteger(messageIndex)) {
+      return null;
+    }
+    const item = messages.querySelector(`.cgqa-message[data-message-index='${messageIndex}']`);
+    return item ? item.querySelector(".cgqa-message-body") : null;
+  }
+
+  function replaceMessageBodyText(body, text) {
+    if (body.classList.contains("is-html") && body.querySelector(".cgqa-message-html")) {
+      return;
+    }
+    let content = body.querySelector(".cgqa-message-stream-text");
+    const time = body.querySelector(".cgqa-message-time");
+    if (!content) {
+      body.classList.remove("is-html");
+      Array.from(body.childNodes).forEach((node) => {
+        if (node !== time) {
+          node.remove();
+        }
+      });
+      content = createElement("span", "cgqa-message-stream-text");
+      body.insertBefore(content, time || null);
+    }
+    if (content.firstChild && content.firstChild.nodeType === Node.TEXT_NODE) {
+      content.firstChild.nodeValue = text;
+      return;
+    }
+    content.textContent = text;
+  }
+
+  function replaceMessageBodyHtml(body, html, options = {}) {
+    const time = body.querySelector(".cgqa-message-time");
+    let htmlBody = body.querySelector(".cgqa-message-html");
+    if (!htmlBody) {
+      Array.from(body.childNodes).forEach((node) => {
+        if (node !== time) {
+          node.remove();
+        }
+      });
+      htmlBody = createElement("div", "cgqa-message-html");
+      body.insertBefore(htmlBody, time || null);
+    }
+    const nextHtml = options.sanitized ? String(html || "") : CGQASanitize.sanitizeMessageHtml(html);
+    if (htmlBody.__cgqaHtml === nextHtml) {
+      body.classList.add("is-html");
+      return;
+    }
+    htmlBody.__cgqaHtml = nextHtml;
+    htmlBody.innerHTML = nextHtml;
+    body.classList.add("is-html");
+  }
+
+  function replaceMessageBodyMarkdown(body, text) {
+    if (
+      !globalThis.CGQASanitize
+      || typeof CGQASanitize.renderStreamingMarkdown !== "function"
+    ) {
+      replaceMessageBodyText(body, text);
+      return;
+    }
+
+    const time = body.querySelector(".cgqa-message-time");
+    let htmlBody = body.querySelector(".cgqa-message-html");
+    if (!htmlBody) {
+      Array.from(body.childNodes).forEach((node) => {
+        if (node !== time) {
+          node.remove();
+        }
+      });
+      htmlBody = createElement("div", "cgqa-message-html");
+      body.classList.add("is-html");
+      body.insertBefore(htmlBody, time || null);
+    }
+    htmlBody.innerHTML = CGQASanitize.renderStreamingMarkdown(text);
+  }
+
+  function normalizeStreamingUpdate(update) {
+    if (update && typeof update === "object") {
+      return {
+        text: String(update.text || ""),
+        html: String(update.html || ""),
+        markdown: Boolean(update.markdown),
+        htmlSanitized: Boolean(update.htmlSanitized)
+      };
+    }
+    return {
+      text: String(update || ""),
+      html: "",
+      markdown: false,
+      htmlSanitized: false
+    };
   }
 
   function canSubmitInput(input, inputDisabled) {
@@ -571,6 +786,7 @@
 
   function renderMessage(message, assistantLabel, callbacks, thread, messageIndex) {
     const item = createElement("article", `cgqa-message cgqa-message-${message.role}`);
+    item.dataset.messageIndex = String(messageIndex);
     const content = createElement("div", "cgqa-message-content");
     const labelRow = createElement("div", "cgqa-message-label-row");
     const meta = createElement("div", "cgqa-message-meta", message.role === "user" ? "你" : assistantLabel);

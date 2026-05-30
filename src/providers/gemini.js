@@ -65,6 +65,7 @@
       setMainComposerHidden: CGQAGeminiDom.setMainComposerHidden,
       setNativeGenerationControlsHidden: CGQAGeminiDom.setNativeGenerationControlsHidden,
       syncPendingResponseState: CGQAGeminiDom.syncPendingResponseState,
+      isResponseGenerating: CGQAGeminiDom.isResponseGenerating,
       completePendingResponse: CGQAGeminiDom.completePendingResponse,
       getScrollContainer: CGQAGeminiDom.getScrollContainer,
       submitPrompt: CGQAGeminiDom.submitPrompt

@@ -969,8 +969,7 @@
       return null;
     }
     const turns = getAllTurns(container).filter((turn) => {
-      return turn === context.tailTurn
-        || Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
+      return Boolean(context.tailTurn.compareDocumentPosition(turn) & Node.DOCUMENT_POSITION_FOLLOWING);
     });
     return turns.length ? turns : null;
   }
@@ -1013,9 +1012,9 @@
           role: "assistant",
           turnId: getTurnId(turn),
           messageId: getMessageId(turn),
-          text: getAssistantText(turn),
-          html: getSanitizedHtml(markdown),
-          contentFormat: "html"
+          text: "",
+          html: "",
+          contentFormat: "text"
         });
       }
     });
@@ -1211,6 +1210,10 @@
 
   function syncPendingResponseState(state) {
     inputBlocker.setBlocked(Boolean(state && state.active));
+  }
+
+  function isResponseGenerating() {
+    return Boolean(findStopButton());
   }
 
   function getNodeControlText(node) {
@@ -1448,6 +1451,7 @@
     setMainComposerHidden,
     setNativeGenerationControlsHidden,
     syncPendingResponseState,
+    isResponseGenerating,
     completePendingResponse,
     getScrollContainer,
     submitPrompt
