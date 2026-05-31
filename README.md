@@ -31,6 +31,7 @@ Clicking the extension icon opens a small popup:
 The popup opens the standalone local management page. It does not toggle the in-page panel.
 It also provides per-provider switches for ChatGPT, Gemini, and DeepSeek. A provider only activates on its supported pages when its switch is enabled. DeepSeek is marked as beta because its page DOM is less stable around formulas.
 The popup also includes `整理当前页面`, which asks the active supported tab to retry quote mark restoration and hide/unload plugin-generated temporary main-chat messages. The question-mark icon next to it explains the command in-place.
+Compatibility options can keep provider-native messages visible during sending, or keep them visible only while generating and hide them automatically a few seconds after the sidebar captures the completed reply.
 
 ## Core Features
 
@@ -62,6 +63,7 @@ The popup also includes `整理当前页面`, which asks the active supported ta
   - delete action.
 - The native page composer is visually hidden while a panel is open, so the user naturally works through the panel.
 - During a panel-sent response, a shared input blocker prevents accidental typing into the provider composer.
+- A compatibility option can keep the provider-native generated message visible during generation and hide or unload it automatically after capture completes.
 - Opening a follow-up panel locks the current page scroll position. Closing an unsent panel unlocks it; sent follow-ups keep the lock until response capture finishes.
 - The panel input is fixed-size, auto-wraps text, and scrolls after its maximum height.
 - Assistant messages render sanitized HTML when the provider's page DOM exposes Markdown-derived HTML.

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.37-mixed-render";
+  const CONTENT_VERSION = "0.7.38-delayed-hide";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -28,6 +28,7 @@
     pendingCaptureMutationTimer: 0,
     pendingDecorationTimer: 0,
     pendingStableTimer: 0,
+    delayedMainChatVisibilityTimer: 0,
     active: false,
     creatingThread: false,
     loadingConversation: false,
@@ -37,7 +38,8 @@
       customPrompt: ""
     },
     compatibility: {
-      keepProviderUiVisibleDuringSend: false
+      keepProviderUiVisibleDuringSend: false,
+      hideProviderUiAfterCaptureDelay: false
     },
     theme: "green",
     cleanupTasks: [],
@@ -48,6 +50,7 @@
   const PENDING_MUTATION_CAPTURE_DELAY_MS = 50;
   const PENDING_DECORATION_SYNC_DELAY_MS = 250;
   const RESPONSE_TIMEOUT_MS = 120000;
+  const DELAYED_MAIN_CHAT_HIDE_MS = 3000;
   const RESTORE_DELAYS_MS = [250, 1000, 2500, 5000];
   const LOCATION_CHECK_DELAYS_MS = [0, 250, 1000];
   const PROMPT_TOKEN_PREFIX = "CGQA_PROMPT";
@@ -428,6 +431,7 @@
     stopPendingCaptureWatcher();
     unlockPendingScroll();
     clearPendingStableTimer();
+    clearDelayedMainChatVisibilityTimer();
   }
 
   function handleMouseUp(event) {
@@ -804,12 +808,17 @@
   }
 
   function normalizeCompatibilitySettings(compatibility) {
+    const keepProviderUiVisibleDuringSend = Boolean(compatibility && compatibility.keepProviderUiVisibleDuringSend);
+    const hideProviderUiAfterCaptureDelay = !keepProviderUiVisibleDuringSend
+      && Boolean(compatibility && compatibility.hideProviderUiAfterCaptureDelay);
     return {
-      keepProviderUiVisibleDuringSend: Boolean(compatibility && compatibility.keepProviderUiVisibleDuringSend)
+      keepProviderUiVisibleDuringSend,
+      hideProviderUiAfterCaptureDelay
     };
   }
 
   async function sendQuestion(rawQuestion) {
+    clearDelayedMainChatVisibilityTimer();
     const question = (rawQuestion || "").trim();
     const thread = getThread(state.activeThreadId);
     if (!thread || !question) {
@@ -952,7 +961,18 @@
     return Boolean(
       state.pendingResponse
       && state.compatibility
-      && state.compatibility.keepProviderUiVisibleDuringSend
+      && (
+        state.compatibility.keepProviderUiVisibleDuringSend
+        || state.compatibility.hideProviderUiAfterCaptureDelay
+      )
+    );
+  }
+
+  function shouldHideProviderUiAfterCaptureDelay() {
+    return Boolean(
+      state.compatibility
+      && state.compatibility.hideProviderUiAfterCaptureDelay
+      && !state.compatibility.keepProviderUiVisibleDuringSend
     );
   }
 
@@ -1259,6 +1279,35 @@
     state.pendingResponse = null;
     unlockPendingScroll();
     syncPanelDecorations();
+    scheduleDelayedMainChatVisibilitySync();
+  }
+
+  function scheduleDelayedMainChatVisibilitySync() {
+    clearDelayedMainChatVisibilityTimer();
+    if (!shouldHideProviderUiAfterCaptureDelay()) {
+      return;
+    }
+    state.delayedMainChatVisibilityTimer = setTimeout(() => {
+      state.delayedMainChatVisibilityTimer = 0;
+      syncDelayedMainChatVisibility();
+    }, DELAYED_MAIN_CHAT_HIDE_MS);
+  }
+
+  function syncDelayedMainChatVisibility() {
+    if (!state.active || !provider || !shouldHideProviderUiAfterCaptureDelay()) {
+      return;
+    }
+    const targets = getMainChatHideTargets();
+    syncMainChatVisibility(targets);
+    syncKnownMainChatVisibility(targets);
+  }
+
+  function clearDelayedMainChatVisibilityTimer() {
+    if (!state.delayedMainChatVisibilityTimer) {
+      return;
+    }
+    clearTimeout(state.delayedMainChatVisibilityTimer);
+    state.delayedMainChatVisibilityTimer = 0;
   }
 
   async function completeProviderPendingResponse(responseTracker) {
@@ -1651,6 +1700,7 @@
       return;
     }
 
+    clearDelayedMainChatVisibilityTimer();
     removeThreadFromRuntime(threadId);
     if (state.pendingResponse && state.pendingResponse.threadId === threadId) {
       state.pendingResponse = null;

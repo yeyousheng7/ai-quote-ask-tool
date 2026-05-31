@@ -8,6 +8,8 @@
   const repairStatus = document.getElementById("repair-status");
   const sendVisibilityToggle = document.getElementById("send-visibility-toggle");
   const sendVisibilityHelp = document.getElementById("send-visibility-help");
+  const delayedHideToggle = document.getElementById("delayed-hide-toggle");
+  const delayedHideHelp = document.getElementById("delayed-hide-help");
   const PROVIDERS = [
     { id: "chatgpt", label: "ChatGPT" },
     { id: "gemini", label: "Gemini" },
@@ -26,6 +28,7 @@
 
   repairHelp.innerHTML = getHelpIconSvg();
   sendVisibilityHelp.innerHTML = getHelpIconSvg();
+  delayedHideHelp.innerHTML = getHelpIconSvg();
 
   repairButton.addEventListener("click", async () => {
     setRepairStatus("running", "正在整理当前页面...");
@@ -61,7 +64,16 @@
 
   sendVisibilityToggle.addEventListener("change", async () => {
     const settings = await CGQAStorage.saveCompatibilitySettings({
-      keepProviderUiVisibleDuringSend: sendVisibilityToggle.checked
+      keepProviderUiVisibleDuringSend: sendVisibilityToggle.checked,
+      hideProviderUiAfterCaptureDelay: sendVisibilityToggle.checked ? false : delayedHideToggle.checked
+    });
+    renderCompatibilitySettings(settings);
+  });
+
+  delayedHideToggle.addEventListener("change", async () => {
+    const settings = await CGQAStorage.saveCompatibilitySettings({
+      keepProviderUiVisibleDuringSend: delayedHideToggle.checked ? false : sendVisibilityToggle.checked,
+      hideProviderUiAfterCaptureDelay: delayedHideToggle.checked
     });
     renderCompatibilitySettings(settings);
   });
@@ -80,6 +92,7 @@
 
   function renderCompatibilitySettings(settings) {
     sendVisibilityToggle.checked = Boolean(settings && settings.keepProviderUiVisibleDuringSend);
+    delayedHideToggle.checked = Boolean(settings && settings.hideProviderUiAfterCaptureDelay);
   }
 
   function createProviderToggle(provider, checked) {

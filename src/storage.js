@@ -16,7 +16,8 @@
     deepseek: false
   };
   const DEFAULT_COMPATIBILITY_SETTINGS = {
-    keepProviderUiVisibleDuringSend: false
+    keepProviderUiVisibleDuringSend: false,
+    hideProviderUiAfterCaptureDelay: false
   };
 
   function normalizeConversationRef(ref) {
@@ -430,10 +431,15 @@
   }
 
   function normalizeCompatibilitySettings(compatibility) {
+    const keepProviderUiVisibleDuringSend = compatibility && Object.prototype.hasOwnProperty.call(compatibility, "keepProviderUiVisibleDuringSend")
+      ? Boolean(compatibility.keepProviderUiVisibleDuringSend)
+      : DEFAULT_COMPATIBILITY_SETTINGS.keepProviderUiVisibleDuringSend;
+    const hideProviderUiAfterCaptureDelay = !keepProviderUiVisibleDuringSend && compatibility && Object.prototype.hasOwnProperty.call(compatibility, "hideProviderUiAfterCaptureDelay")
+      ? Boolean(compatibility.hideProviderUiAfterCaptureDelay)
+      : DEFAULT_COMPATIBILITY_SETTINGS.hideProviderUiAfterCaptureDelay;
     return {
-      keepProviderUiVisibleDuringSend: compatibility && Object.prototype.hasOwnProperty.call(compatibility, "keepProviderUiVisibleDuringSend")
-        ? Boolean(compatibility.keepProviderUiVisibleDuringSend)
-        : DEFAULT_COMPATIBILITY_SETTINGS.keepProviderUiVisibleDuringSend
+      keepProviderUiVisibleDuringSend,
+      hideProviderUiAfterCaptureDelay
     };
   }
 
