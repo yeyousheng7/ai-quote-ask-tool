@@ -151,6 +151,16 @@
       return Boolean(root && root.isConnected);
     }
 
+    function updateReplyStyle(replyStyle) {
+      if (!root || !root.isConnected) {
+        return;
+      }
+      const control = root.querySelector(".cgqa-reply-style");
+      if (control) {
+        updateReplyStyleControl(control, replyStyle);
+      }
+    }
+
     function updateStreamingMessage(threadId, messageIndex, update) {
       if (!root || !root.isConnected || threadId !== activeThreadId) {
         return false;
@@ -191,7 +201,7 @@
 
     window.addEventListener("resize", handleResize);
 
-    return { render, focusInput, isOpen, updateStreamingMessage, destroy };
+    return { render, focusInput, isOpen, updateReplyStyle, updateStreamingMessage, destroy };
 
     function bindMessageScrollState(messages) {
       if (!messages) {

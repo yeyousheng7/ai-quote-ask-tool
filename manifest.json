@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Quote Annotation",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Add lightweight quote annotation threads to supported AI conversations.",
   "permissions": ["storage", "activeTab"],
   "action": {

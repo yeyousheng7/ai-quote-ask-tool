@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const CONTENT_VERSION = "0.7.38-delayed-hide";
+  const CONTENT_VERSION = "0.7.39-light-settings";
   const RUNTIME_KEY = "CGQAContentRuntime";
 
   const existingRuntime = globalThis[RUNTIME_KEY];
@@ -222,7 +222,9 @@
         });
         loadReplyStyle().then((replyStyle) => {
           state.replyStyle = replyStyle;
-          sidebar && sidebar.render(getThread(state.activeThreadId) || null, { reason: "update" });
+          if (sidebar && typeof sidebar.updateReplyStyle === "function") {
+            sidebar.updateReplyStyle(state.replyStyle);
+          }
         }).catch((error) => {
           console.error("[CGQA] apply changed reply style failed", error);
         });
